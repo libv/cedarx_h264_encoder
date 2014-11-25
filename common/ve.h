@@ -24,9 +24,10 @@
 
 int ve_open(void);
 void ve_close(void);
-void *ve_get_regs(void);
 int ve_get_version(void);
 int ve_wait(int timeout);
+void *ve_get(int engine, uint32_t flags);
+void ve_put(void);
 
 void *ve_malloc(int size);
 void ve_free(void *ptr);
@@ -47,6 +48,10 @@ static inline uint32_t readl(void *addr)
 {
 	return *((volatile uint32_t *) addr);
 }
+
+#define VE_ENGINE_MPEG			0x0
+#define VE_ENGINE_H264			0x1
+#define VE_ENGINE_AVC			0xb
 
 #define VE_CTRL				0x000
 #define VE_VERSION			0x0f0
