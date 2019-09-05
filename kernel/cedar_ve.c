@@ -39,15 +39,9 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/dma.h>
-#include <mach/hardware.h>
-#include <asm/system.h>
 #include <asm/siginfo.h>
 #include <asm/signal.h>
-#include <linux/clk/sunxi.h>
-#include <mach/sunxi-smc.h>
 
-//#include <linux/clk/clk-sun8iw3.h>
-#include <mach/irqs.h>
 #include "cedar_ve.h"
 #include <linux/regulator/consumer.h>
 
