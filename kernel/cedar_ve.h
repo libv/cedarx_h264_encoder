@@ -10,12 +10,12 @@ enum IOCTL_CMD {
 	IOCTL_ENABLE_VE,
 	IOCTL_DISABLE_VE,
 	IOCTL_SET_VE_FREQ,
-	
+
 	IOCTL_CONFIG_AVS2 = 0x200,
-	IOCTL_GETVALUE_AVS2 ,
-	IOCTL_PAUSE_AVS2 ,
-	IOCTL_START_AVS2 ,
-	IOCTL_RESET_AVS2 ,
+	IOCTL_GETVALUE_AVS2,
+	IOCTL_PAUSE_AVS2,
+	IOCTL_START_AVS2,
+	IOCTL_RESET_AVS2,
 	IOCTL_ADJUST_AVS2,
 	IOCTL_ENGINE_REQ,
 	IOCTL_ENGINE_REL,
@@ -27,7 +27,7 @@ enum IOCTL_CMD {
 
 	IOCTL_READ_REG = 0x300,
 	IOCTL_WRITE_REG,
-	
+
 	IOCTL_SET_VOL = 0x400,
 
 #if defined CONFIG_ARCH_SUN8IW8P1
@@ -35,13 +35,13 @@ enum IOCTL_CMD {
 #endif
 };
 
-struct cedarv_env_infomation{
+struct cedarv_env_infomation {
 	unsigned int phymem_start;
-	int  phymem_total_size;
-	unsigned int  address_macc;
+	int phymem_total_size;
+	unsigned int address_macc;
 };
 
-struct cedarv_cache_range{
+struct cedarv_cache_range {
 	long start;
 	long end;
 };
@@ -49,13 +49,13 @@ struct cedarv_cache_range{
 struct __cedarv_task {
 	int task_prio;
 	int ID;
-	unsigned long timeout;	
+	unsigned long timeout;
 	unsigned int frametime;
 	unsigned int block_mode;
 };
 
 struct cedarv_engine_task {
-	struct __cedarv_task t;	
+	struct __cedarv_task t;
 	struct list_head list;
 	struct task_struct *task_handle;
 	unsigned int status;
@@ -70,10 +70,9 @@ struct cedarv_engine_task_info {
 };
 
 struct cedarv_regop {
-    unsigned int addr;
-    unsigned int value;
+	unsigned int addr;
+	unsigned int value;
 };
 /*--------------------------------------------------------------------------------*/
-
 
 #endif
