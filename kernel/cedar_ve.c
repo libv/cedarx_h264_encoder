@@ -58,31 +58,7 @@ struct regulator *regu;
 #define CEDARDEV_MINOR (0)
 #endif
 
-#if (defined CONFIG_ARCH_SUN8IW1P1) || (defined CONFIG_ARCH_SUN8IW3P1)
 #define MACC_REGS_BASE      (0x01C0E000)	// Media ACCelerate
-
-#elif defined CONFIG_ARCH_SUN9IW1P1
-
-#define MACC_REGS_BASE      (0x03A40000)	// Media ACCelerate
-
-#elif defined CONFIG_ARCH_SUN8IW5P1
-#define MACC_REGS_BASE      (0x01C0E000)	// Media ACCelerate
-
-#elif defined CONFIG_ARCH_SUN8IW6P1
-#define MACC_REGS_BASE      (0x01C0E000)	// Media ACCelerate
-
-#elif defined CONFIG_ARCH_SUN8IW7P1
-#define MACC_REGS_BASE      (0x01C0E000)	// Media ACCelerate
-
-#elif defined CONFIG_ARCH_SUN8IW8P1
-#define MACC_REGS_BASE      (0x01C0E000)	// Media ACCelerate
-
-#elif defined CONFIG_ARCH_SUN8IW9P1
-#define MACC_REGS_BASE      (0x01C0E000)	// Media ACCelerate
-
-#else
-#error "Unknown chip type!"
-#endif
 
 //#define CEDAR_DEBUG
 
@@ -204,29 +180,6 @@ static irqreturn_t VideoEngineInterupt(int irq, void *dev)
 			wake_up_interruptible(&wait_ve);	//ioctl
 		}
 	}
-#if defined CONFIG_ARCH_SUN8IW8P1
-	if (modual_sel & (0x20)) {
-		ve_int_status_reg =
-		    (unsigned int)(addrs.regs_macc + 0xe00 + 0x1c);
-		ve_int_ctrl_reg =
-		    (unsigned int)(addrs.regs_macc + 0xe00 + 0x14);
-		interrupt_enable = readl(ve_int_ctrl_reg) & (0x38);
-
-		status = readl(ve_int_status_reg);
-
-		if ((status & 0x7) && interrupt_enable) {
-			//disable interrupt
-			val = readl(ve_int_ctrl_reg);
-			writel(val & (~0x38), ve_int_ctrl_reg);
-
-			cedar_devp->jpeg_irq_value = 1;
-			cedar_devp->jpeg_irq_flag = 1;
-
-			//any interrupt will wake up wait queue
-			wake_up_interruptible(&wait_ve);
-		}
-	}
-#endif
 
 	modual_sel &= 0xf;
 	if (modual_sel <= 4) {
@@ -692,8 +645,6 @@ long cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		return cedar_devp->en_irq_value;
 
-#if defined CONFIG_ARCH_SUN8IW8P1
-
 	case IOCTL_WAIT_JPEG_DEC:
 		ve_timeout = (int)arg;
 		cedar_devp->jpeg_irq_value = 0;
@@ -708,7 +659,7 @@ long cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 						 ve_timeout * HZ);
 		cedar_devp->jpeg_irq_flag = 0;
 		return cedar_devp->jpeg_irq_value;
-#endif
+
 	case IOCTL_ENABLE_VE:
 		if (clk_prepare_enable(ve_moduleclk)) {
 			printk("try to enable ve_moduleclk failed!\n");
@@ -733,23 +684,6 @@ long cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		{
 			int arg_rate = (int)arg;
 
-#if 0
-			int v_div = 0;
-			v_div =
-			    (ve_parent_clk_rate / 1000000 +
-			     (arg_rate - 1)) / arg_rate;
-			if (v_div <= 8 && v_div >= 1) {
-				if (clk_set_rate
-				    (ve_moduleclk,
-				     ve_parent_clk_rate / v_div)) {
-					/*
-					 * while set the rate fail, don't return the fail value,
-					 * we can still set the other rate of ve module clk.
-					 */
-					printk("try to set ve_rate fail\n");
-				}
-			}
-#else
 			if (arg_rate >= VE_CLK_LOW_WATER &&
 			    arg_rate <= VE_CLK_HIGH_WATER &&
 			    clk_get_rate(ve_moduleclk) / 1000000 != arg_rate) {
@@ -768,7 +702,6 @@ long cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				}
 			}
 			ret = clk_get_rate(ve_moduleclk);
-#endif
 			break;
 		}
 	case IOCTL_GETVALUE_AVS2:
@@ -802,28 +735,6 @@ long cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		cedar_devp->ref_count = (int)arg;
 		break;
 	case IOCTL_SET_VOL:
-		{
-
-#if defined CONFIG_ARCH_SUN9IW1P1
-			int ret;
-			int vol = (int)arg;
-
-			if (down_interruptible(&cedar_devp->sem)) {
-				return -ERESTARTSYS;
-			}
-			info->set_vol_flag = 1;
-
-			//set output voltage to arg mV
-			ret = regulator_set_voltage(regu, vol * 1000, 3300000);
-			if (IS_ERR(regu)) {
-				printk
-				    ("some error happen, fail to set axp15_dcdc4 regulator voltage!\n");
-			}
-			//printk("set voltage value vol: %d(mv)\n", vol);
-			up(&cedar_devp->sem);
-#endif
-			break;
-		}
 	default:
 		return -1;
 	}
@@ -867,17 +778,6 @@ static int cedardev_release(struct inode *inode, struct file *filp)
 	if (down_interruptible(&cedar_devp->sem)) {
 		return -ERESTARTSYS;
 	}
-#if defined CONFIG_ARCH_SUN9IW1P1
-
-	if (info->set_vol_flag == 1) {
-		regulator_set_voltage(regu, 900000, 3300000);
-		if (IS_ERR(regu)) {
-			printk
-			    ("some error happen, fail to set axp15_dcdc4 regulator voltage!\n");
-			return -EINVAL;
-		}
-	}
-#endif
 
 	/* release other resource here */
 	cedar_devp->de_irq_flag = 1;
@@ -940,10 +840,6 @@ static int snd_sw_cedar_suspend(struct platform_device *pdev,
 	printk("[cedar] standby suspend\n");
 	ret = disable_cedar_hw_clk();
 
-#if defined CONFIG_ARCH_SUN9IW1P1
-	clk_disable_unprepare(ve_power_gating);
-#endif
-
 	if (ret < 0) {
 		printk("Warring: cedar clk disable somewhere error!\n");
 		return -EFAULT;
@@ -957,10 +853,6 @@ static int snd_sw_cedar_resume(struct platform_device *pdev)
 	int ret = 0;
 
 	printk("[cedar] standby resume\n");
-
-#if defined CONFIG_ARCH_SUN9IW1P1
-	clk_prepare_enable(ve_power_gating);
-#endif
 
 	if (cedar_devp->ref_count == 0) {
 		return 0;
@@ -1034,7 +926,6 @@ static int cedardev_init(void)
 	if (!cedar_devp->iomap_addrs.regs_macc) {
 		printk("cannot map region for macc");
 	}
-#if (defined CONFIG_ARCH_SUN8IW1P1) || (defined CONFIG_ARCH_SUN8IW3P1)
 
 	/*VE_SRAM mapping to AC320 */
 	val = readl(0xf1c00000);
@@ -1056,117 +947,6 @@ static int cedardev_init(void)
 		printk("try to get ve_parent_pll_clk fail\n");
 		return -EINVAL;
 	}
-#elif defined CONFIG_ARCH_SUN9IW1P1
-
-	ve_power_gating = clk_get(NULL, "cpurvddve");
-	if ((!ve_power_gating) || IS_ERR(ve_power_gating)) {
-		printk("try to get ve_power_gating fail\n");
-		return -EINVAL;
-	}
-
-	clk_prepare_enable(ve_power_gating);
-
-	regu = regulator_get(NULL, "axp15_dcdc4");
-	if (IS_ERR(regu)) {
-		printk
-		    ("some error happen, fail to get axp15_dcdc4 regulator!\n");
-		return -EINVAL;
-	}
-	//set output voltage to 0.9V
-	ret = regulator_set_voltage(regu, 900000, 3300000);
-	if (IS_ERR(regu)) {
-		printk
-		    ("some error happen, fail to set axp15_dcdc4 regulator voltage!\n");
-		return -EINVAL;
-	}
-#if 0
-	//enable regulator
-	ret = regulator_enable(regu);
-	if (IS_ERR(regu)) {
-		printk("some error happen, fail to enable regulator !" \ n);
-		return -EINVAL;
-	}
-#endif
-	//VE_SRAM mapping to AC320
-	val = sunxi_smc_readl((void __iomem *)0xf0800000);
-	val &= 0x80000000;
-	sunxi_smc_writel(val, (void __iomem *)0xf0800000);
-
-	//remapping SRAM to MACC for codec test
-	val = sunxi_smc_readl((void __iomem *)0xf0800000);
-	val |= 0x7fffffff;
-	sunxi_smc_writel(val, (void __iomem *)0xf0800000);
-
-	ve_parent_pll_clk = clk_get(NULL, "pll5");
-	if ((!ve_parent_pll_clk) || IS_ERR(ve_parent_pll_clk)) {
-		printk("try to get ve_parent_pll_clk fail\n");
-		return -EINVAL;
-	}
-#elif defined CONFIG_ARCH_SUN8IW5P1
-
-	/*VE_SRAM mapping to AC320 */
-	val = readl(0xf1c00000);
-	val &= 0x80000000;
-	writel(val, 0xf1c00000);
-
-	/*remapping SRAM to MACC for codec test */
-	val = readl(0xf1c00000);
-	val |= 0x7fffffff;
-	writel(val, 0xf1c00000);
-
-	ve_parent_pll_clk = clk_get(NULL, "pll_ve");
-	if ((!ve_parent_pll_clk) || IS_ERR(ve_parent_pll_clk)) {
-		printk("try to get ve_parent_pll_clk fail\n");
-		return -EINVAL;
-	}
-#elif defined CONFIG_ARCH_SUN8IW6P1
-
-	/*VE_SRAM mapping to AC320 */
-	val = sunxi_smc_readl((void __iomem *)0xf1c00000);
-	val &= 0x80000000;
-	sunxi_smc_writel(val, (void __iomem *)0xf1c00000);
-
-	/*remapping SRAM to MACC for codec test */
-	val = sunxi_smc_readl((void __iomem *)0xf1c00000);
-	val |= 0x7fffffff;
-	sunxi_smc_writel(val, (void __iomem *)0xf1c00000);
-
-	//clear bootmode bit for give sram to sram from system on aw1650 only
-	val = sunxi_smc_readl((void __iomem *)0xf1c00004);
-	val &= 0xfeffffff;
-	sunxi_smc_writel(val, (void __iomem *)0xf1c00004);
-
-	ve_parent_pll_clk = clk_get(NULL, "pll_ve");
-	if ((!ve_parent_pll_clk) || IS_ERR(ve_parent_pll_clk)) {
-		printk("try to get ve_parent_pll_clk fail\n");
-		return -EINVAL;
-	}
-#elif ((defined CONFIG_ARCH_SUN8IW7P1) || (defined CONFIG_ARCH_SUN8IW8P1) || (defined CONFIG_ARCH_SUN8IW9P1))
-
-	/*VE_SRAM mapping to AC320 */
-	val = sunxi_smc_readl((void __iomem *)0xf1c00000);
-	val &= 0x80000000;
-	sunxi_smc_writel(val, (void __iomem *)0xf1c00000);
-
-	/*remapping SRAM to MACC for codec test */
-	val = sunxi_smc_readl((void __iomem *)0xf1c00000);
-	val |= 0x7fffffff;
-	sunxi_smc_writel(val, (void __iomem *)0xf1c00000);
-
-	//clear bootmode bit for give sram to ve
-	val = sunxi_smc_readl((void __iomem *)0xf1c00004);
-	val &= 0xfeffffff;
-	sunxi_smc_writel(val, (void __iomem *)0xf1c00004);
-
-	ve_parent_pll_clk = clk_get(NULL, "pll_ve");
-	if ((!ve_parent_pll_clk) || IS_ERR(ve_parent_pll_clk)) {
-		printk("try to get ve_parent_pll_clk fail\n");
-		return -EINVAL;
-	}
-#else
-
-#error "Unknown chip type!"
-#endif
 
 	ve_moduleclk = clk_get(NULL, "ve");
 	if (!ve_moduleclk || IS_ERR(ve_moduleclk)) {
@@ -1226,28 +1006,6 @@ static void cedardev_exit(void)
 	} else {
 		clk_put(ve_parent_pll_clk);
 	}
-
-#if	0
-	//diable regulator
-	ret = regulator_disable(regu);
-	if (IS_ERR(regu)) {
-		printk("some error happen, fail to disable regulator !\n");
-	}
-#endif
-
-#if defined CONFIG_ARCH_SUN9IW1P1
-
-	//put regulator when module exit
-	regulator_put(regu);
-
-	if (NULL == ve_power_gating || IS_ERR(ve_power_gating)) {
-		printk("ve_power_gating handle is invalid, just return!\n");
-	} else {
-		clk_disable_unprepare(ve_power_gating);
-		clk_put(ve_power_gating);
-		ve_power_gating = NULL;
-	}
-#endif
 
 	unregister_chrdev_region(dev, 1);
 //  platform_driver_unregister(&sw_cedar_driver);
