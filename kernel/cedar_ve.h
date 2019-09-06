@@ -3,7 +3,7 @@
 
 enum IOCTL_CMD {
 	IOCTL_UNKOWN = 0x100,
-	IOCTL_GET_ENV_INFO,
+	IOCTL_GET_ENV_INFO = 0x101,
 	IOCTL_WAIT_VE_DE,
 	IOCTL_WAIT_VE_EN,
 	IOCTL_RESET_VE,
@@ -17,22 +17,20 @@ enum IOCTL_CMD {
 	IOCTL_START_AVS2,
 	IOCTL_RESET_AVS2,
 	IOCTL_ADJUST_AVS2,
-	IOCTL_ENGINE_REQ,
-	IOCTL_ENGINE_REL,
+	IOCTL_ENGINE_REQ = 0x0206,
+	IOCTL_ENGINE_REL = 0x0207,
 	IOCTL_ENGINE_CHECK_DELAY,
 	IOCTL_GET_IC_VER,
 	IOCTL_ADJUST_AVS2_ABS,
 	IOCTL_FLUSH_CACHE,
-	IOCTL_SET_REFCOUNT,
+	IOCTL_SET_REFCOUNT = 0x020C,
 
 	IOCTL_READ_REG = 0x300,
 	IOCTL_WRITE_REG,
 
 	IOCTL_SET_VOL = 0x400,
 
-#if defined CONFIG_ARCH_SUN8IW8P1
 	IOCTL_WAIT_JPEG_DEC = 0x500,
-#endif
 };
 
 struct cedarv_env_infomation {
@@ -73,6 +71,5 @@ struct cedarv_regop {
 	unsigned int addr;
 	unsigned int value;
 };
-/*--------------------------------------------------------------------------------*/
 
 #endif

@@ -7,6 +7,8 @@
 #include <linux/fs.h>
 #include <linux/cdev.h>
 
+#include "cedar_ve.h"
+
 #define MODULE_NAME "sunxi_cedar"
 
 struct sunxi_cedar {
@@ -103,7 +105,28 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct sunxi_cedar *cedar = filp->private_data;
 
-	dev_info(cedar->dev, "%s();\n", __func__);
+	switch (cmd) {
+	case IOCTL_GET_ENV_INFO:
+		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
+			 "GET_ENV_INFO", arg);
+		return 0;
+	case IOCTL_ENGINE_REQ:
+		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
+			 "ENGINE_REQ", arg);
+		return 0;
+	case IOCTL_ENGINE_REL:
+		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
+			 "ENGINE_REL", arg);
+		return 0;
+	case IOCTL_SET_REFCOUNT:
+		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
+			 "SET_REFCOUNT", arg);
+		return 0;
+	default:
+		dev_err(cedar->dev, "%s(0x%04X, 0x%lX): unhandled ioctl.\n",
+			__func__, cmd, arg);
+		return -1;
+	}
 
 	return 0;
 }
