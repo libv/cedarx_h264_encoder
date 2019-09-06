@@ -1,11 +1,30 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Cedrus VPU driver
+ *
+ * Copyright (C) 2016 Florent Revest <florent.revest@free-electrons.com>
+ * Copyright (C) 2018 Paul Kocialkowski <paul.kocialkowski@bootlin.com>
+ * Copyright (C) 2018 Bootlin
+ *
+ * Based on the vim2m driver, that is:
+ *
+ * Copyright (c) 2009-2010 Samsung Electronics Co., Ltd.
+ * Pawel Osciak, <pawel@osciak.com>
+ * Marek Szyprowski, <m.szyprowski@samsung.com>
+ */
 /*
  * Contains glue code for handling devicetree and things.
  */
 #include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
+#include <linux/clk.h>
+#include <linux/reset.h>
+
+#include <linux/soc/sunxi/sunxi_sram.h>
 
 #include "cedar_ve.h"
 
@@ -21,15 +40,145 @@ struct sunxi_cedar {
 	dev_t majorminor;
 
 	bool powered;
+
+	struct clk *mod_clk;
+	struct clk *ahb_clk;
+	struct clk *ram_clk;
+
+	struct reset_control *rstc;
+
+	void __iomem *mmio;
 };
+
+#define CEDRUS_CLOCK_RATE_DEFAULT 320000000
 
 static int cedar_resources_get(struct sunxi_cedar *cedar,
 			       struct platform_device *platform_dev)
 {
+	struct resource *res;
+	int ret;
+
 	dev_info(cedar->dev, "%s();\n", __func__);
 
+	ret = of_reserved_mem_device_init(cedar->dev);
+	if (ret && ret != -ENODEV) {
+		dev_err(cedar->dev, "Failed to reserve memory\n");
+
+		return ret;
+	}
+
+	ret = sunxi_sram_claim(cedar->dev);
+	if (ret) {
+		dev_err(cedar->dev, "Failed to claim SRAM\n");
+
+		goto err_mem;
+	}
+
+	cedar->ahb_clk = devm_clk_get(cedar->dev, "ahb");
+	if (IS_ERR(cedar->ahb_clk)) {
+		dev_err(cedar->dev, "Failed to get AHB clock\n");
+
+		ret = PTR_ERR(cedar->ahb_clk);
+		goto err_sram;
+	}
+
+	cedar->mod_clk = devm_clk_get(cedar->dev, "mod");
+	if (IS_ERR(cedar->mod_clk)) {
+		dev_err(cedar->dev, "Failed to get MOD clock\n");
+
+		ret = PTR_ERR(cedar->mod_clk);
+		goto err_sram;
+	}
+
+	cedar->ram_clk = devm_clk_get(cedar->dev, "ram");
+	if (IS_ERR(cedar->ram_clk)) {
+		dev_err(cedar->dev, "Failed to get RAM clock\n");
+
+		ret = PTR_ERR(cedar->ram_clk);
+		goto err_sram;
+	}
+
+	cedar->rstc = devm_reset_control_get(cedar->dev, NULL);
+	if (IS_ERR(cedar->rstc)) {
+		dev_err(cedar->dev, "Failed to get reset control\n");
+
+		ret = PTR_ERR(cedar->rstc);
+		goto err_sram;
+	}
+
+	res = platform_get_resource(platform_dev, IORESOURCE_MEM, 0);
+	cedar->mmio = devm_ioremap_resource(cedar->dev, res);
+	if (IS_ERR(cedar->mmio)) {
+		dev_err(cedar->dev, "Failed to map registers\n");
+
+		ret = PTR_ERR(cedar->mmio);
+		goto err_sram;
+	}
+
+	ret = clk_set_rate(cedar->mod_clk, CEDRUS_CLOCK_RATE_DEFAULT);
+	if (ret) {
+		dev_err(cedar->dev, "Failed to set clock rate\n");
+
+		goto err_sram;
+	}
+
+	ret = clk_prepare_enable(cedar->ahb_clk);
+	if (ret) {
+		dev_err(cedar->dev, "Failed to enable AHB clock\n");
+
+		goto err_sram;
+	}
+
+	ret = clk_prepare_enable(cedar->mod_clk);
+	if (ret) {
+		dev_err(cedar->dev, "Failed to enable MOD clock\n");
+
+		goto err_ahb_clk;
+	}
+
+	ret = clk_prepare_enable(cedar->ram_clk);
+	if (ret) {
+		dev_err(cedar->dev, "Failed to enable RAM clock\n");
+
+		goto err_mod_clk;
+	}
+
+	ret = reset_control_reset(cedar->rstc);
+	if (ret) {
+		dev_err(cedar->dev, "Failed to apply reset\n");
+
+		goto err_ram_clk;
+	}
+
 	return 0;
+
+err_ram_clk:
+	clk_disable_unprepare(cedar->ram_clk);
+err_mod_clk:
+	clk_disable_unprepare(cedar->mod_clk);
+err_ahb_clk:
+	clk_disable_unprepare(cedar->ahb_clk);
+err_sram:
+	sunxi_sram_release(cedar->dev);
+err_mem:
+	of_reserved_mem_device_release(cedar->dev);
+
+	return ret;
 }
+
+static void cedar_resources_remove(struct sunxi_cedar *cedar)
+{
+	reset_control_assert(cedar->rstc);
+
+	clk_disable_unprepare(cedar->ram_clk);
+	clk_disable_unprepare(cedar->mod_clk);
+	clk_disable_unprepare(cedar->ahb_clk);
+
+	sunxi_sram_release(cedar->dev);
+
+	of_reserved_mem_device_release(cedar->dev);
+}
+
 
 static int cedar_poweron(struct sunxi_cedar *cedar)
 {
@@ -250,6 +399,8 @@ static int cedar_remove(struct platform_device *platform_dev)
 	ret = cedar_slashdev_cleanup(cedar);
 	if (ret)
 		return ret;
+
+	cedar_resources_remove(cedar);
 
 	return 0;
 }
