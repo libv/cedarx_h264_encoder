@@ -23,8 +23,9 @@
 #include <linux/cdev.h>
 #include <linux/clk.h>
 #include <linux/reset.h>
-
+#include <linux/uaccess.h>
 #include <linux/soc/sunxi/sunxi_sram.h>
+#include <linux/mm.h>
 
 #include "cedar_ve.h"
 
@@ -48,14 +49,17 @@ struct sunxi_cedar {
 	struct reset_control *rstc;
 
 	void __iomem *mmio;
+	struct resource *mmio_resource;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
 
+#define CEDAR_MMAP_MAGIC_MEMORY 0x434DF000 /* 'C' 'M' 0xF000 */
+#define CEDAR_MMAP_MAGIC_REGISTERS 0x4352F000 /* 'C''R' 0xF000 */
+
 static int cedar_resources_get(struct sunxi_cedar *cedar,
 			       struct platform_device *platform_dev)
 {
-	struct resource *res;
 	int ret;
 
 	dev_info(cedar->dev, "%s();\n", __func__);
@@ -106,8 +110,10 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 		goto err_sram;
 	}
 
-	res = platform_get_resource(platform_dev, IORESOURCE_MEM, 0);
-	cedar->mmio = devm_ioremap_resource(cedar->dev, res);
+	cedar->mmio_resource = platform_get_resource(platform_dev,
+						     IORESOURCE_MEM, 0);
+	cedar->mmio = devm_ioremap_resource(cedar->dev,
+					    cedar->mmio_resource);
 	if (IS_ERR(cedar->mmio)) {
 		dev_err(cedar->dev, "Failed to map registers\n");
 
@@ -250,15 +256,35 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 }
 
 static long
+cedar_slashdev_ioctl_get_env_info(void __user *to)
+{
+	struct cedarv_env_infomation info = {
+		.phymem_start = CEDAR_MMAP_MAGIC_MEMORY,
+		.phymem_total_size = 0x04000000,
+		.address_macc = CEDAR_MMAP_MAGIC_REGISTERS,
+	};
+
+	if (copy_to_user(to, &info, sizeof(struct cedarv_env_infomation)))
+		return -EFAULT;
+
+	return 0;
+}
+
+static long
 cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct sunxi_cedar *cedar = filp->private_data;
+	void __user *to = (void *) arg;
 
 	switch (cmd) {
 	case IOCTL_GET_ENV_INFO:
 		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
 			 "GET_ENV_INFO", arg);
-		return 0;
+
+		if (!arg)
+			return -EINVAL;
+
+		return cedar_slashdev_ioctl_get_env_info(to);
 	case IOCTL_ENGINE_REQ:
 		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
 			 "ENGINE_REQ", arg);
@@ -284,8 +310,33 @@ static int
 cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	struct sunxi_cedar *cedar = filp->private_data;
+	size_t size = cedar->mmio_resource->end -
+		cedar->mmio_resource->start;
+	int ret;
 
-	dev_info(cedar->dev, "%s();\n", __func__);
+	dev_info(cedar->dev, "%s(0x%08lX);\n", __func__, vma->vm_pgoff << 12);
+
+	if ((vma->vm_pgoff << 12) != CEDAR_MMAP_MAGIC_REGISTERS) {
+		dev_err(cedar->dev, "%s(0x%08lX): invalid offset;\n",
+			__func__, vma->vm_pgoff << 12);
+		return -EINVAL;
+	}
+
+	/* Set reserved and I/O flag for the area. */
+	vma->vm_flags |= VM_IO;
+
+	/* Select uncached access. */
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	/* clear magic, so vm_iomap_memory will not try to use it */
+	vma->vm_pgoff = 0;
+
+	ret = vm_iomap_memory(vma, cedar->mmio_resource->start, size);
+	if (ret) {
+		dev_err(cedar->dev, "%s(): vm_iomap_memory() failed: %d.\n",
+			__func__, ret);
+		return ret;
+	}
 
 	return 0;
 }
