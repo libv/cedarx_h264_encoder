@@ -285,6 +285,10 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EINVAL;
 
 		return cedar_slashdev_ioctl_get_env_info(to);
+	case IOCTL_RESET_VE:
+		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
+			 "RESET_VE", arg);
+		return 0;
 	case IOCTL_ENGINE_REQ:
 		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
 			 "ENGINE_REQ", arg);
