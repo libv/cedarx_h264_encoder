@@ -26,6 +26,7 @@
 #include <linux/uaccess.h>
 #include <linux/soc/sunxi/sunxi_sram.h>
 #include <linux/mm.h>
+#include <linux/dma-mapping.h>
 
 #include "cedar_ve.h"
 
@@ -50,6 +51,10 @@ struct sunxi_cedar {
 
 	void __iomem *mmio;
 	struct resource *mmio_resource;
+
+	dma_addr_t mem_address;
+	size_t mem_size;
+	void *mem_virtual;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -121,18 +126,32 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 		goto err_sram;
 	}
 
+	cedar->mem_size = 64 << 20;
+	cedar->mem_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->mem_size,
+				   &cedar->mem_address, GFP_KERNEL);
+	if (!cedar->mem_virtual) {
+		dev_err(cedar->dev, "%s: dma_alloc_coherent() failed.\n",
+			__func__);
+		ret = -ENOMEM;
+		goto err_sram;
+	}
+
+	dev_info(cedar->dev, "%s: memory: 0x%08X (0x%02X)\n", __func__,
+		 cedar->mem_address, cedar->mem_size);
+
 	ret = clk_set_rate(cedar->mod_clk, CEDRUS_CLOCK_RATE_DEFAULT);
 	if (ret) {
 		dev_err(cedar->dev, "Failed to set clock rate\n");
 
-		goto err_sram;
+		goto err_cma;
 	}
 
 	ret = clk_prepare_enable(cedar->ahb_clk);
 	if (ret) {
 		dev_err(cedar->dev, "Failed to enable AHB clock\n");
 
-		goto err_sram;
+		goto err_cma;
 	}
 
 	ret = clk_prepare_enable(cedar->mod_clk);
@@ -158,15 +177,18 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 
 	return 0;
 
-err_ram_clk:
+ err_ram_clk:
 	clk_disable_unprepare(cedar->ram_clk);
-err_mod_clk:
+ err_mod_clk:
 	clk_disable_unprepare(cedar->mod_clk);
-err_ahb_clk:
+ err_ahb_clk:
 	clk_disable_unprepare(cedar->ahb_clk);
-err_sram:
+ err_cma:
+	dma_free_coherent(cedar->dev, cedar->mem_size,
+			  cedar->mem_virtual, cedar->mem_address);
+ err_sram:
 	sunxi_sram_release(cedar->dev);
-err_mem:
+ err_mem:
 	of_reserved_mem_device_release(cedar->dev);
 
 	return ret;
@@ -179,6 +201,9 @@ static void cedar_resources_remove(struct sunxi_cedar *cedar)
 	clk_disable_unprepare(cedar->ram_clk);
 	clk_disable_unprepare(cedar->mod_clk);
 	clk_disable_unprepare(cedar->ahb_clk);
+
+	dma_free_coherent(cedar->dev, cedar->mem_size,
+			  cedar->mem_virtual, cedar->mem_address);
 
 	sunxi_sram_release(cedar->dev);
 
@@ -256,12 +281,12 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 }
 
 static long
-cedar_slashdev_ioctl_get_env_info(void __user *to)
+cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
 {
 	struct cedarv_env_infomation info = {
-		.phymem_start = CEDAR_MMAP_MAGIC_MEMORY,
-		.phymem_total_size = 0x04000000,
-		.address_macc = CEDAR_MMAP_MAGIC_REGISTERS,
+		.phymem_start = cedar->mem_address,
+		.phymem_total_size = cedar->mem_size,
+		.address_macc = cedar->mmio_resource->start,
 	};
 
 	if (copy_to_user(to, &info, sizeof(struct cedarv_env_infomation)))
@@ -284,7 +309,7 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (!arg)
 			return -EINVAL;
 
-		return cedar_slashdev_ioctl_get_env_info(to);
+		return cedar_slashdev_ioctl_get_env_info(cedar, to);
 	case IOCTL_RESET_VE:
 		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
 			 "RESET_VE", arg);
@@ -311,20 +336,13 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 
 static int
-cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
+cedar_slashdev_mmap_io(struct sunxi_cedar *cedar, struct vm_area_struct *vma)
 {
-	struct sunxi_cedar *cedar = filp->private_data;
 	size_t size = cedar->mmio_resource->end -
 		cedar->mmio_resource->start;
 	int ret;
 
-	dev_info(cedar->dev, "%s(0x%08lX);\n", __func__, vma->vm_pgoff << 12);
-
-	if ((vma->vm_pgoff << 12) != CEDAR_MMAP_MAGIC_REGISTERS) {
-		dev_err(cedar->dev, "%s(0x%08lX): invalid offset;\n",
-			__func__, vma->vm_pgoff << 12);
-		return -EINVAL;
-	}
+	dev_info(cedar->dev, "%s();\n", __func__);
 
 	/* Set reserved and I/O flag for the area. */
 	vma->vm_flags |= VM_IO;
@@ -332,7 +350,7 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 	/* Select uncached access. */
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
-	/* clear magic, so vm_iomap_memory will not try to use it */
+	/* clear offset, so vm_iomap_memory will not try to use it */
 	vma->vm_pgoff = 0;
 
 	ret = vm_iomap_memory(vma, cedar->mmio_resource->start, size);
@@ -340,6 +358,58 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 		dev_err(cedar->dev, "%s(): vm_iomap_memory() failed: %d.\n",
 			__func__, ret);
 		return ret;
+	}
+
+	return 0;
+}
+
+static int
+cedar_slashdev_mmap_mem(struct sunxi_cedar *cedar, struct vm_area_struct *vma)
+{
+	phys_addr_t address = vma->vm_pgoff << 12;
+	size_t size = vma->vm_end - vma->vm_start;
+	int ret;
+
+	dev_info(cedar->dev, "%s(0x%08X, 0x%02X);\n", __func__, address, size);
+
+	/* Set reserved and I/O flag for the area. */
+	vma->vm_flags |= VM_IO;
+
+	/* Select uncached access. */
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	/* clear offset, so vm_iomap_memory will not try to use it */
+	vma->vm_pgoff = 0;
+
+	ret = vm_iomap_memory(vma, address, size);
+	if (ret) {
+		dev_err(cedar->dev, "%s(): vm_iomap_memory() failed: %d.\n",
+			__func__, ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int
+cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct sunxi_cedar *cedar = filp->private_data;
+	phys_addr_t address = vma->vm_pgoff << 12;
+	size_t size = vma->vm_end - vma->vm_start;
+
+	dev_info(cedar->dev, "%s(0x%08X);\n", __func__, address);
+
+	if (address == cedar->mmio_resource->start)
+		return cedar_slashdev_mmap_io(cedar, vma);
+	else if ((address >= cedar->mem_address) &&
+		 ((address + size) <= (cedar->mem_address + cedar->mem_size))) {
+		return cedar_slashdev_mmap_mem(cedar, vma);
+	} else {
+		dev_err(cedar->dev, "%s(0x%08X): invalid offset;\n",
+			__func__, address);
+		dev_info(cedar->dev, "0x%lX -> 0x%lX\n", vma->vm_start, vma->vm_end);
+		return -EINVAL;
 	}
 
 	return 0;
