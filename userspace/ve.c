@@ -18,6 +18,8 @@
  */
 
 #include <fcntl.h>
+#include <string.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,6 +27,8 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+
+
 #include "ve.h"
 
 #define DEVICE "/dev/cedar_dev"
@@ -84,54 +88,91 @@ static struct
 	struct memchunk_t first_memchunk;
 	pthread_rwlock_t memory_lock;
 	pthread_mutex_t device_lock;
-} ve = { .fd = -1, .memory_lock = PTHREAD_RWLOCK_INITIALIZER, .device_lock = PTHREAD_MUTEX_INITIALIZER };
+} ve = {
+	.fd = -1,
+	.memory_lock = PTHREAD_RWLOCK_INITIALIZER,
+	.device_lock = PTHREAD_MUTEX_INITIALIZER,
+};
 
 int ve_open(void)
 {
-	if (ve.fd != -1)
-		return 0;
-
 	struct ve_info info;
+	int ret;
 
 	ve.fd = open(DEVICE, O_RDWR);
-	if (ve.fd == -1)
+	if (ve.fd == -1) {
+		fprintf(stderr, "%s(): failed to open %s: %s\n",
+			__func__, DEVICE, strerror(errno));
 		return 0;
+	}
 
-	if (ioctl(ve.fd, IOCTL_GET_ENV_INFO, (void *)(&info)) == -1)
-		goto err;
+	ret = ioctl(ve.fd, IOCTL_GET_ENV_INFO, (void *)(&info));
+	if (ret == -1) {
+		fprintf(stderr, "%s(): IOCTL_GET_ENV_INFO failed: %s\n",
+			__func__, strerror(errno));
+		goto error;
+	}
 
-	ve.regs = mmap(NULL, 0x800, PROT_READ | PROT_WRITE, MAP_SHARED, ve.fd, info.registers);
-	if (ve.regs == MAP_FAILED)
-		goto err;
+	ve.regs = mmap(NULL, 0x800, PROT_READ | PROT_WRITE, MAP_SHARED,
+		       ve.fd, info.registers);
+	if (ve.regs == MAP_FAILED) {
+		fprintf(stderr,
+			"%s(): register mmapping at 0x%08X failed: %s\n",
+			__func__, info.registers, strerror(errno));
+		goto error;
+	}
 
 	ve.first_memchunk.phys_addr = info.reserved_mem - PAGE_OFFSET;
 	ve.first_memchunk.size = info.reserved_mem_size;
 
-	ioctl(ve.fd, IOCTL_ENGINE_REQ, 0);
-	ioctl(ve.fd, IOCTL_ENABLE_VE, 0);
-	ioctl(ve.fd, IOCTL_SET_VE_FREQ, 320);
-	ioctl(ve.fd, IOCTL_RESET_VE, 0);
+	ret = ioctl(ve.fd, IOCTL_ENGINE_REQ, 0);
+	if (ret == -1)
+		fprintf(stderr, "%s(): IOCTL_ENGINE_REQ failed: %s\n",
+			__func__, strerror(errno));
+
+	ret = ioctl(ve.fd, IOCTL_ENABLE_VE, 0);
+	if (ret == -1)
+		fprintf(stderr, "%s(): IOCTL_ENABLE_VE failed: %s\n",
+			__func__, strerror(errno));
+
+	ret = ioctl(ve.fd, IOCTL_SET_VE_FREQ, 320);
+	if (ret == -1)
+		fprintf(stderr, "%s(): IOCTL_SET_VE_FREQ failed: %s\n",
+			__func__, strerror(errno));
+
+	ret = ioctl(ve.fd, IOCTL_RESET_VE, 0);
+	if (ret == -1)
+		fprintf(stderr, "%s(): IOCTL_RESET_VE failed: %s\n",
+			__func__, strerror(errno));
 
 	writel(0x00130007, ve.regs + VE_CTRL);
 
 	ve.version = readl(ve.regs + VE_VERSION) >> 16;
 	printf("[VDPAU SUNXI] VE version 0x%04x opened.\n", ve.version);
 
-	return 1;
+	return 0;
 
-err:
+
+error:
 	close(ve.fd);
 	ve.fd = -1;
-	return 0;
+	return -1;
 }
 
-void ve_close(void)
+void
+ve_close(void)
 {
-	if (ve.fd == -1)
-		return;
+	int ret;
 
-	ioctl(ve.fd, IOCTL_DISABLE_VE, 0);
-	ioctl(ve.fd, IOCTL_ENGINE_REL, 0);
+	ret = ioctl(ve.fd, IOCTL_DISABLE_VE, 0);
+	if (ret)
+		fprintf(stderr, "%s(): IOCTL_DISABLE_VE failed: %s\n",
+			__func__, strerror(errno));
+
+	ret = ioctl(ve.fd, IOCTL_ENGINE_REL, 0);
+	if (ret)
+		fprintf(stderr, "%s(): IOCTL_ENGINE_REL failed: %s\n",
+			__func__, strerror(errno));
 
 	munmap(ve.regs, 0x800);
 	ve.regs = NULL;
@@ -140,170 +181,177 @@ void ve_close(void)
 	ve.fd = -1;
 }
 
-int ve_get_version(void)
+int
+ve_get_version(void)
 {
 	return ve.version;
 }
 
-int ve_wait(int timeout)
+int
+ve_wait(int timeout)
 {
-	if (ve.fd == -1)
-		return 0;
+	int ret;
 
-	return ioctl(ve.fd, IOCTL_WAIT_VE, timeout);
+	ret = ioctl(ve.fd, IOCTL_WAIT_VE, timeout);
+	if (ret) {
+		fprintf(stderr, "%s(): IOCTL_WAIT_VE failed: %s\n",
+			__func__, strerror(errno));
+		return ret;
+	}
+
+	return 0;
 }
 
-void *ve_get(int engine, uint32_t flags)
+void *
+ve_get(int engine, uint32_t flags)
 {
-	if (pthread_mutex_lock(&ve.device_lock))
-		return NULL;
+	pthread_mutex_lock(&ve.device_lock);
 
 	writel(0x00130000 | (engine & 0xf) | (flags & ~0xf), ve.regs + VE_CTRL);
 
 	return ve.regs;
 }
 
-void ve_put(void)
+void
+ve_put(void)
 {
 	writel(0x00130007, ve.regs + VE_CTRL);
+
 	pthread_mutex_unlock(&ve.device_lock);
 }
 
-void *ve_malloc(int size)
+void *
+ve_malloc(int size)
 {
-	if (ve.fd == -1)
-		return NULL;
+	struct memchunk_t *chunk, *best_chunk = NULL;
+	int size_left;
+	void *ptr;
 
-	if (pthread_rwlock_wrlock(&ve.memory_lock))
-		return NULL;
-
-	void *addr = NULL;
+	pthread_rwlock_wrlock(&ve.memory_lock);
 
 	size = (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-	struct memchunk_t *c, *best_chunk = NULL;
-	for (c = &ve.first_memchunk; c != NULL; c = c->next)
-	{
-		if(c->virt_addr == NULL && c->size >= size)
-		{
-			if (best_chunk == NULL || c->size < best_chunk->size)
-				best_chunk = c;
 
-			if (c->size == size)
+	for (chunk = &ve.first_memchunk; chunk; chunk = chunk->next)
+		if (!chunk->virt_addr && (chunk->size >= size)) {
+			if (!best_chunk || (chunk->size < best_chunk->size))
+				best_chunk = chunk;
+
+			if (chunk->size == size)
 				break;
 		}
+
+	if (!best_chunk) {
+		fprintf(stderr, "%s(%d): failed to find free area.\n",
+			__func__, size);
+		goto error;
 	}
 
-	if (!best_chunk)
-		goto out;
-
-	int left_size = best_chunk->size - size;
-
-	addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, ve.fd, best_chunk->phys_addr + PAGE_OFFSET);
-	if (addr == MAP_FAILED)
-	{
-		addr = NULL;
-		goto out;
+	ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED,
+		    ve.fd, best_chunk->phys_addr + PAGE_OFFSET);
+	if (ptr == MAP_FAILED) {
+		fprintf(stderr, "%s(%d): failed to find mmap(0x%08X): %s.\n",
+			__func__, size, best_chunk->phys_addr,
+			strerror(errno));
+		goto error;
 	}
 
-	best_chunk->virt_addr = addr;
+	size_left = best_chunk->size - size;
+	best_chunk->virt_addr = ptr;
 	best_chunk->size = size;
 
-	if (left_size > 0)
-	{
-		c = malloc(sizeof(struct memchunk_t));
-		c->phys_addr = best_chunk->phys_addr + size;
-		c->size = left_size;
-		c->virt_addr = NULL;
-		c->next = best_chunk->next;
-		best_chunk->next = c;
+	if (size_left > 0) {
+		chunk = malloc(sizeof(struct memchunk_t));
+		chunk->phys_addr = best_chunk->phys_addr + size;
+		chunk->size = size_left;
+		chunk->virt_addr = NULL;
+		chunk->next = best_chunk->next;
+		best_chunk->next = chunk;
 	}
 
-out:
 	pthread_rwlock_unlock(&ve.memory_lock);
-	return addr;
+	return ptr;
+
+ error:
+	pthread_rwlock_unlock(&ve.memory_lock);
+	return NULL;
 }
 
-void ve_free(void *ptr)
+void
+ve_free(void *ptr)
 {
-	if (ve.fd == -1)
+	struct memchunk_t *chunk, *next;
+
+	if (!ptr)
 		return;
 
-	if (ptr == NULL)
-		return;
+	pthread_rwlock_wrlock(&ve.memory_lock);
 
-	if (pthread_rwlock_wrlock(&ve.memory_lock))
-		return;
-
-	struct memchunk_t *c;
-	for (c = &ve.first_memchunk; c != NULL; c = c->next)
-	{
-		if (c->virt_addr == ptr)
-		{
-			munmap(ptr, c->size);
-			c->virt_addr = NULL;
+	for (chunk = &ve.first_memchunk; chunk; chunk = chunk->next)
+		if (chunk->virt_addr == ptr) {
+			munmap(ptr, chunk->size);
+			chunk->virt_addr = NULL;
 			break;
 		}
-	}
 
-	for (c = &ve.first_memchunk; c != NULL; c = c->next)
-	{
-		if (c->virt_addr == NULL)
-		{
-			while (c->next != NULL && c->next->virt_addr == NULL)
-			{
-				struct memchunk_t *n = c->next;
-				c->size += n->size;
-				c->next = n->next;
-				free(n);
+	for (chunk = &ve.first_memchunk; chunk; chunk = chunk->next)
+		if (!chunk->virt_addr) {
+			while ((chunk->next != NULL) && (chunk->next->virt_addr == NULL)) {
+				next = chunk->next;
+				chunk->size += next->size;
+				chunk->next = next->next;
+				free(next);
 			}
 		}
-	}
 
 	pthread_rwlock_unlock(&ve.memory_lock);
 }
 
-uint32_t ve_virt2phys(void *ptr)
+uint32_t
+ve_virt2phys(void *ptr)
 {
-	if (ve.fd == -1)
+	struct memchunk_t *chunk;
+	uint32_t addr = 0;
+
+	if (!ptr)
 		return 0;
 
 	if (pthread_rwlock_rdlock(&ve.memory_lock))
 		return 0;
 
-	uint32_t addr = 0;
-
-	struct memchunk_t *c;
-	for (c = &ve.first_memchunk; c != NULL; c = c->next)
-	{
-		if (c->virt_addr == NULL)
+	for (chunk = &ve.first_memchunk; chunk; chunk = chunk->next) {
+		if (!chunk->virt_addr)
 			continue;
 
-		if (c->virt_addr == ptr)
-		{
-			addr = c->phys_addr;
+		if (chunk->virt_addr == ptr) {
+			addr = chunk->phys_addr;
 			break;
-		}
-		else if (ptr > c->virt_addr && ptr < (c->virt_addr + c->size))
-		{
-			addr = c->phys_addr + (ptr - c->virt_addr);
+		} else if ((ptr > chunk->virt_addr) &&
+			   (ptr < (chunk->virt_addr + chunk->size))) {
+			addr = chunk->phys_addr + (ptr - chunk->virt_addr);
 			break;
 		}
 	}
 
 	pthread_rwlock_unlock(&ve.memory_lock);
+
 	return addr;
 }
 
-void ve_flush_cache(void *start, int len)
+int
+ve_flush_cache(void *start, int len)
 {
-	if (ve.fd == -1)
-		return;
-
-	struct cedarv_cache_range range =
-	{
+	struct cedarv_cache_range range = {
 		.start = (int)start,
 		.end = (int)(start + len)
 	};
+	int ret;
 
-	ioctl(ve.fd, IOCTL_FLUSH_CACHE, (void*)(&range));
+	ret = ioctl(ve.fd, IOCTL_FLUSH_CACHE, &range);
+	if (ret) {
+		fprintf(stderr, "%s(): IOCTL_FLUSH_CACHE failed: %s\n",
+			__func__, strerror(errno));
+		return ret;
+	}
+
+	return 0;
 }

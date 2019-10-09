@@ -32,7 +32,7 @@ void ve_put(void);
 void *ve_malloc(int size);
 void ve_free(void *ptr);
 uint32_t ve_virt2phys(void *ptr);
-void ve_flush_cache(void *start, int len);
+int ve_flush_cache(void *start, int len);
 
 static inline void writeb(uint8_t val, void *addr)
 {
