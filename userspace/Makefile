@@ -1,5 +1,5 @@
 TARGET = h264enc
-SRC = main.c h264enc.c ../common/ve.c
+SRC = ve.c h264enc.c main.c
 CFLAGS = -Wall -O3 -I../common
 LDFLAGS = -lpthread
 LIBS =
@@ -16,7 +16,7 @@ DEP = $(addsuffix .d,$(basename $(SRC)))
 
 all: $(TARGET)
 $(TARGET): $(OBJ)
-	$(CC) $(LDFLAGS) $(OBJ) $(LIBS) -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) $(LIBS) -o $@
 
 clean:
 	rm -f $(OBJ)
