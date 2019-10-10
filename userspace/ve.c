@@ -152,7 +152,6 @@ int ve_open(void)
 
 	return 0;
 
-
 error:
 	close(ve.fd);
 	ve.fd = -1;

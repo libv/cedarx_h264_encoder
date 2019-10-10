@@ -131,8 +131,7 @@ static void put_seq_parameter_set(h264enc *c)
 
 	unsigned int frame_cropping_flag = c->crop_right || c->crop_bottom;
 	put_bits(c->regs, frame_cropping_flag, 1);
-	if (frame_cropping_flag)
-	{
+	if (frame_cropping_flag) {
 		put_ue(c->regs, 0);
 		put_ue(c->regs, c->crop_right);
 		put_ue(c->regs, 0);
@@ -189,8 +188,7 @@ static void put_slice_header(h264enc *c)
 	if (c->current_slice_type == SLICE_I)
 		put_ue(c->regs, /* idr_pic_id = */ 0);
 
-	if (c->current_slice_type == SLICE_P)
-	{
+	if (c->current_slice_type == SLICE_P) {
 		put_bits(c->regs, /* num_ref_idx_active_override_flag = */ 0, 1);
 		put_bits(c->regs, /* ref_pic_list_modification_flag_l0 = */ 0, 1);
 		put_bits(c->regs, /* adaptive_ref_pic_marking_mode_flag = */ 0, 1);
@@ -198,8 +196,7 @@ static void put_slice_header(h264enc *c)
 			put_ue(c->regs, /* cabac_init_idc = */ 0);
 	}
 
-	if (c->current_slice_type == SLICE_I)
-	{
+	if (c->current_slice_type == SLICE_I) {
 		put_bits(c->regs, /* no_output_of_prior_pics_flag = */ 0, 1);
 		put_bits(c->regs, /* long_term_reference_flag = */ 0, 1);
 	}
@@ -217,11 +214,12 @@ void h264enc_free(h264enc *c)
 
 	ve_free(c->extra_buffer_line);
 	ve_free(c->extra_buffer_frame);
-	for (i = 0; i < 2; i++)
-	{
+
+	for (i = 0; i < 2; i++) {
 		ve_free(c->ref_picture[i].luma_buffer);
 		ve_free(c->ref_picture[i].extra_buffer);
 	}
+
 	ve_free(c->bytestream_buffer);
 	ve_free(c->luma_buffer);
 	free(c);
@@ -234,30 +232,27 @@ h264enc *h264enc_new(const struct h264enc_params *p)
 
 	/* check parameter validity */
 	if (!IS_ALIGNED(p->src_width, 16) || !IS_ALIGNED(p->src_height, 16) ||
-		!IS_ALIGNED(p->width, 2) || !IS_ALIGNED(p->height, 2) ||
-		p->width > p->src_width || p->height > p->src_height)
-	{
-		MSG("invalid picture size");
+	    !IS_ALIGNED(p->width, 2) || !IS_ALIGNED(p->height, 2) ||
+	    p->width > p->src_width || p->height > p->src_height) {
+		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
 		return NULL;
 	}
 
-	if (p->qp == 0 || p->qp > 47)
-	{
-		MSG("invalid QP");
+	if (p->qp == 0 || p->qp > 47) {
+		fprintf(stderr, "%s(): invalid QP.\n", __func__);
 		return NULL;
 	}
 
-	if (p->src_format != H264_FMT_NV12 && p->src_format != H264_FMT_NV16)
-	{
-		MSG("invalid color format");
+	if (p->src_format != H264_FMT_NV12 && p->src_format != H264_FMT_NV16) {
+		fprintf(stderr, "%s(): invalid color format.\n", __func__);
 		return NULL;
 	}
 
 	/* allocate memory for h264enc structure */
 	c = calloc(1, sizeof(*c));
-	if (c == NULL)
-	{
-		MSG("can't allocate h264enc data");
+	if (c == NULL) {
+		fprintf(stderr, "%s(): can't allocate h264enc context.\n",
+			__func__);
 		return NULL;
 	}
 
@@ -281,8 +276,7 @@ h264enc *h264enc_new(const struct h264enc_params *p)
 
 	/* allocate input buffer */
 	c->input_color_format = p->src_format;
-	switch (c->input_color_format)
-	{
+	switch (c->input_color_format) {
 	case H264_FMT_NV12:
 		c->input_buffer_size = p->src_width * (p->src_height + p->src_height / 2);
 		break;
@@ -292,39 +286,67 @@ h264enc *h264enc_new(const struct h264enc_params *p)
 	}
 
 	c->luma_buffer = ve_malloc(c->input_buffer_size);
-	if (c->luma_buffer == NULL)
-		goto nomem;
-
+	if (!c->luma_buffer) {
+		fprintf(stderr, "%s(): failed to allocate input buffer.\n",
+			__func__);
+		goto error;
+	}
 	c->chroma_buffer = c->luma_buffer + p->src_width * p->src_height;
 
 	/* allocate bytestream output buffer */
 	c->bytestream_buffer_size = 1 * 1024 * 1024;
 	c->bytestream_buffer = ve_malloc(c->bytestream_buffer_size);
-	if (c->bytestream_buffer == NULL)
-		goto nomem;
+	if (!c->bytestream_buffer) {
+		fprintf(stderr, "%s(): failed to allocate bytestream buffer.\n",
+			__func__);
+		goto error;
+	}
 
 	/* allocate reference picture memory */
 	unsigned int luma_size = ALIGN(c->mb_width * 16, 32) * ALIGN(c->mb_height * 16, 32);
 	unsigned int chroma_size = ALIGN(c->mb_width * 16, 32) * ALIGN(c->mb_height * 8, 32);
-	for (i = 0; i < 2; i++)
-	{
+	for (i = 0; i < 2; i++) {
 		c->ref_picture[i].luma_buffer = ve_malloc(luma_size + chroma_size);
+		if (!c->ref_picture[i].luma_buffer) {
+			fprintf(stderr, "%s(): failed to allocate reference "
+				"picture %d buffer.\n", __func__, i);
+			goto error;
+		}
 		c->ref_picture[i].chroma_buffer = c->ref_picture[i].luma_buffer + luma_size;
+
 		c->ref_picture[i].extra_buffer = ve_malloc(luma_size / 4);
-		if (c->ref_picture[i].luma_buffer == NULL || c->ref_picture[i].extra_buffer == NULL)
-			goto nomem;
+		if (!c->ref_picture[i].extra_buffer) {
+			fprintf(stderr, "%s(): failed to allocate reference "
+				"picture %d extra buffer.\n", __func__, i);
+			goto error;
+		}
 	}
 
 	/* allocate unknown purpose buffers */
 	c->extra_buffer_frame = ve_malloc(ALIGN(c->mb_width, 4) * c->mb_height * 8);
+	if (!c->extra_buffer_frame) {
+		fprintf(stderr, "%s(): failed to allocate extra buffer frame.\n",
+			__func__);
+		goto error;
+	}
 	c->extra_buffer_line = ve_malloc(c->mb_width * 32);
-	if (c->extra_buffer_frame == NULL || c->extra_buffer_line == NULL)
-		goto nomem;
+	if (!c->extra_buffer_line) {
+		fprintf(stderr, "%s(): failed to allocate extra buffer line.\n",
+			__func__);
+		goto error;
+	}
 
 	return c;
 
-nomem:
-	MSG("can't allocate VE memory");
+ error:
+	ve_free(c->extra_buffer_line);
+	ve_free(c->extra_buffer_frame);
+	ve_free(c->ref_picture[1].luma_buffer);
+	ve_free(c->ref_picture[1].extra_buffer);
+	ve_free(c->ref_picture[0].luma_buffer);
+	ve_free(c->ref_picture[0].extra_buffer);
+	ve_free(c->bytestream_buffer);
+	ve_free(c->luma_buffer);
 	h264enc_free(c);
 	return NULL;
 }
@@ -361,8 +383,7 @@ int h264enc_encode_picture(h264enc *c)
 	writel(c->bytestream_buffer_size * 8, c->regs + VE_AVC_VLE_MAX);
 
 	/* write headers */
-	if (c->write_sps_pps)
-	{
+	if (c->write_sps_pps) {
 		put_seq_parameter_set(c);
 		put_pic_parameter_set(c);
 		c->write_sps_pps = 0;
@@ -387,8 +408,7 @@ int h264enc_encode_picture(h264enc *c)
 	writel(ve_virt2phys(ref_pic->extra_buffer), c->regs + VE_AVC_REC_SLUMA);
 
 	/* set reference buffers */
-	if (c->current_slice_type != SLICE_I)
-	{
+	if (c->current_slice_type != SLICE_I) {
 		ref_pic = &c->ref_picture[(c->current_frame_num + 1) % 2];
 		writel(ve_virt2phys(ref_pic->luma_buffer), c->regs + VE_AVC_REF_LUMA);
 		writel(ve_virt2phys(ref_pic->chroma_buffer), c->regs + VE_AVC_REF_CHROMA);
@@ -431,5 +451,11 @@ int h264enc_encode_picture(h264enc *c)
 
 	ve_put();
 
-	return (status & 0x3) == 0x1;
+	if ((status & 0x3) != 0x1) {
+		fprintf(stderr, "%s(): decoding failed: status 0x%02X\n",
+			__func__, status);
+		return -1;
+	}
+
+	return 0;
 }

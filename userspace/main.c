@@ -31,48 +31,57 @@
 static int read_frame(int fd, void *buffer, int size)
 {
 	int total = 0, len;
-	while (total < size)
-	{
+
+	while (total < size) {
 		len = read(fd, buffer + total, size - total);
 		if (len == 0)
-			return 0;
+			return -1;
 		total += len;
 	}
-	return 1;
+
+	return 0;
 }
 
-int main(const int argc, const char **argv)
+int main(int argc, char **argv)
 {
-	if (argc != 5)
-	{
+	struct h264enc_params params;
+	h264enc *encoder;
+	void *input_buf, *output_buf;
+	int width, height, input_size, ret;
+	int in, out;
+
+	if (argc != 5) {
 		printf("Usage: %s <infile> <width> <height> <outfile>\n", argv[0]);
 		return EXIT_FAILURE;
 	}
 
-	int width = atoi(argv[2]);
-	int height = atoi(argv[3]);
+	width = atoi(argv[2]);
+	height = atoi(argv[3]);
 
-	if (!ve_open())
+	ret = ve_open();
+	if (ret) {
+		fprintf(stderr, "%s(): ve_open() failed.\n", __func__);
 		return EXIT_FAILURE;
+	}
 
-	int in = 0, out;
-	if (strcmp(argv[1], "-") != 0)
-	{
-		if ((in = open(argv[1], O_RDONLY)) == -1)
-		{
-			printf("could not open input file\n");
+	if (strcmp(argv[1], "-")) {
+		in = open(argv[1], O_RDONLY);
+		if (in == -1) {
+			fprintf(stderr, "%s(): Failed to open input file %s\n",
+				__func__, argv[1]);
 			return EXIT_FAILURE;
 		}
-	}
+	} else
+		  in = 0;
 
-	if ((out = open(argv[4], O_CREAT | O_RDWR | O_TRUNC,
-			S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1)
-	{
-		printf("could not open output file\n");
+	out = open(argv[4], O_CREAT | O_RDWR | O_TRUNC,
+		   S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+	if (out == -1) {
+		fprintf(stderr, "%s(): Failed to open output file %s\n",
+			__func__, argv[4]);
 		return EXIT_FAILURE;
 	}
 
-	struct h264enc_params params;
 	params.src_width = (width + 15) & ~15;
 	params.width = width;
 	params.src_height = (height + 15) & ~15;
@@ -84,32 +93,25 @@ int main(const int argc, const char **argv)
 	params.qp = 24;
 	params.keyframe_interval = 25;
 
-	h264enc *encoder = h264enc_new(&params);
-	if (encoder == NULL)
-	{
-		printf("could not create encoder\n");
-		goto err;
+	input_size = params.src_width * (params.src_height + params.src_height / 2);
+
+	encoder = h264enc_new(&params);
+	if (!encoder) {
+		fprintf(stderr, "%s: could not create encoder\n", __func__);
+		return EXIT_FAILURE;
 	}
 
-	void* output_buf = h264enc_get_bytestream_buffer(encoder);
+	output_buf = h264enc_get_bytestream_buffer(encoder);
+	input_buf = h264enc_get_input_buffer(encoder);
 
-	int input_size = params.src_width * (params.src_height + params.src_height / 2);
-	void* input_buf = h264enc_get_input_buffer(encoder);
-
-	while (read_frame(in, input_buf, input_size))
-	{
-		if (h264enc_encode_picture(encoder))
+	while (!read_frame(in, input_buf, input_size)) {
+		if (!h264enc_encode_picture(encoder))
 			write(out, output_buf, h264enc_get_bytestream_length(encoder));
 		else
-			printf("encoding error\n");
+			fprintf(stderr, "%s: encoding error.\n", __func__);
 	}
 
 	h264enc_free(encoder);
-
-err:
-	ve_close();
-	close(out);
-	close(in);
 
 	return EXIT_SUCCESS;
 }
