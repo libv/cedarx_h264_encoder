@@ -334,6 +334,9 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
 			 "ENABLE_VE", arg);
 		return 0;
+	case IOCTL_FLUSH_CACHE:
+		/* silently ignore. */
+		return 0;
 	default:
 		dev_err(cedar->dev, "%s(0x%04X, 0x%lX): unhandled ioctl.\n",
 			__func__, cmd, arg);
