@@ -27,6 +27,7 @@
 #include <linux/soc/sunxi/sunxi_sram.h>
 #include <linux/mm.h>
 #include <linux/dma-mapping.h>
+#include <linux/interrupt.h>
 
 #include "cedar_ve.h"
 
@@ -62,10 +63,17 @@ struct sunxi_cedar {
 #define CEDAR_MMAP_MAGIC_MEMORY 0x434DF000 /* 'C' 'M' 0xF000 */
 #define CEDAR_MMAP_MAGIC_REGISTERS 0x4352F000 /* 'C''R' 0xF000 */
 
+static irqreturn_t cedar_isr(int irq, void *dev_id)
+{
+	struct sunxi_cedar *cedar = (struct sunxi_cedar *) dev_id;
+
+	return IRQ_HANDLED;
+}
+
 static int cedar_resources_get(struct sunxi_cedar *cedar,
 			       struct platform_device *platform_dev)
 {
-	int ret;
+	int irq, ret;
 
 	dev_info(cedar->dev, "%s();\n", __func__);
 
@@ -139,6 +147,22 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 
 	dev_info(cedar->dev, "%s: memory: 0x%08X (0x%02X)\n", __func__,
 		 cedar->mem_address, cedar->mem_size);
+
+	irq = platform_get_irq(platform_dev, 0);
+	if (irq < 0) {
+		dev_err(cedar->dev, "%s(): platform_get_irq() failed: %d.\n",
+			__func__, -irq);
+		ret = -irq;
+		goto err_cma;
+	}
+
+	ret = devm_request_irq(cedar->dev, irq, cedar_isr, 0,
+			       MODULE_NAME, cedar);
+	if (ret) {
+		dev_err(cedar->dev, "%s(): devm_request_irq() failed: %d.\n",
+			__func__, ret);
+		goto err_cma;
+	}
 
 	ret = clk_set_rate(cedar->mod_clk, CEDRUS_CLOCK_RATE_DEFAULT);
 	if (ret) {
