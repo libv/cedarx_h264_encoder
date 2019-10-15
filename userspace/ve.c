@@ -28,49 +28,12 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
-
+#include "cedar_ve.h"
 #include "ve.h"
 
 #define DEVICE "/dev/cedar_dev"
 #define PAGE_OFFSET (0xc0000000) // from kernel
 #define PAGE_SIZE (4096)
-
-enum IOCTL_CMD
-{
-	IOCTL_UNKOWN = 0x100,
-	IOCTL_GET_ENV_INFO,
-	IOCTL_WAIT_VE,
-	IOCTL_RESET_VE,
-	IOCTL_ENABLE_VE,
-	IOCTL_DISABLE_VE,
-	IOCTL_SET_VE_FREQ,
-
-	IOCTL_CONFIG_AVS2 = 0x200,
-	IOCTL_GETVALUE_AVS2 ,
-	IOCTL_PAUSE_AVS2 ,
-	IOCTL_START_AVS2 ,
-	IOCTL_RESET_AVS2 ,
-	IOCTL_ADJUST_AVS2,
-	IOCTL_ENGINE_REQ,
-	IOCTL_ENGINE_REL,
-	IOCTL_ENGINE_CHECK_DELAY,
-	IOCTL_GET_IC_VER,
-	IOCTL_ADJUST_AVS2_ABS,
-	IOCTL_FLUSH_CACHE
-};
-
-struct ve_info
-{
-	uint32_t reserved_mem;
-	int reserved_mem_size;
-	uint32_t registers;
-};
-
-struct cedarv_cache_range
-{
-	long start;
-	long end;
-};
 
 struct memchunk_t
 {
@@ -96,7 +59,7 @@ static struct
 
 int ve_open(void)
 {
-	struct ve_info info;
+	struct cedarv_env_infomation info;
 	int ret;
 
 	ve.fd = open(DEVICE, O_RDWR);
@@ -114,16 +77,16 @@ int ve_open(void)
 	}
 
 	ve.regs = mmap(NULL, 0x800, PROT_READ | PROT_WRITE, MAP_SHARED,
-		       ve.fd, info.registers);
+		       ve.fd, info.address_macc);
 	if (ve.regs == MAP_FAILED) {
 		fprintf(stderr,
 			"%s(): register mmapping at 0x%08X failed: %s\n",
-			__func__, info.registers, strerror(errno));
+			__func__, info.address_macc, strerror(errno));
 		goto error;
 	}
 
-	ve.first_memchunk.phys_addr = info.reserved_mem - PAGE_OFFSET;
-	ve.first_memchunk.size = info.reserved_mem_size;
+	ve.first_memchunk.phys_addr = info.phymem_start - PAGE_OFFSET;
+	ve.first_memchunk.size = info.phymem_total_size;
 
 	ret = ioctl(ve.fd, IOCTL_ENGINE_REQ, 0);
 	if (ret == -1)
@@ -191,7 +154,7 @@ ve_wait(int timeout)
 {
 	int ret;
 
-	ret = ioctl(ve.fd, IOCTL_WAIT_VE, timeout);
+	ret = ioctl(ve.fd, IOCTL_WAIT_VE_EN, timeout);
 	if (ret) {
 		fprintf(stderr, "%s(): IOCTL_WAIT_VE failed: %s\n",
 			__func__, strerror(errno));
@@ -340,8 +303,8 @@ int
 ve_flush_cache(void *start, int len)
 {
 	struct cedarv_cache_range range = {
-		.start = (int)start,
-		.end = (int)(start + len)
+		.start = (long)start,
+		.end = (long)(start + len)
 	};
 	int ret;
 
