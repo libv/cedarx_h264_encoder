@@ -444,6 +444,9 @@ int h264enc_encode_picture(h264enc *c)
 	/* save bytestream length */
 	c->bytestream_length = readl(c->regs + VE_AVC_VLE_LENGTH) / 8;
 
+	printf("Frame %d, size 0x%04X, status 0x%08X\n",
+	       c->current_frame_num, c->bytestream_length, status);
+
 	/* next frame */
 	c->current_frame_num++;
 	if (c->current_frame_num >= c->keyframe_interval)
