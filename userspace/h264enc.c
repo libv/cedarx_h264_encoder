@@ -26,8 +26,6 @@
 #include "ve.h"
 #include "ve_regs.h"
 
-#define MSG(x) fprintf(stderr, "h264enc: " x "\n")
-
 #define ALIGN(x, a) (((x) + ((typeof(x))(a) - 1)) & ~((typeof(x))(a) - 1))
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
@@ -444,8 +442,7 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	/* save bytestream length */
 	context->bytestream_length = readl(context->regs + VE_AVC_VLE_LENGTH) / 8;
 
-	printf("\rFrame %5d, size 0x%04X, status 0x%08X",
-	       context->frame_count, context->bytestream_length, status);
+	printf("\rFrame %5d", context->frame_count);
 
 	/* next frame */
 	context->current_frame_num++;

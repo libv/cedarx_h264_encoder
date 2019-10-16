@@ -169,6 +169,8 @@ ve_malloc(int size)
 	int size_left;
 	void *ptr;
 
+	printf("%s(%d);\n", __func__, size);
+
 	pthread_rwlock_wrlock(&ve.memory_lock);
 
 	size = (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
