@@ -18,6 +18,8 @@
  *
  */
 
+#define _GNU_SOURCE
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +27,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
+
 #include "ve.h"
 #include "h264enc.h"
 
@@ -65,10 +69,11 @@ int main(int argc, char **argv)
 	}
 
 	if (strcmp(argv[1], "-")) {
-		in = open(argv[1], O_RDONLY);
+		in = open(argv[1], O_RDONLY | O_LARGEFILE);
 		if (in == -1) {
-			fprintf(stderr, "%s(): Failed to open input file %s\n",
-				__func__, argv[1]);
+			fprintf(stderr,
+				"%s(): Failed to open input file %s: %s\n",
+				__func__, argv[1], strerror(errno));
 			return EXIT_FAILURE;
 		}
 	} else
