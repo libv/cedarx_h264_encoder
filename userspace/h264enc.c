@@ -376,10 +376,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 
 	context->regs = ve_get(VE_ENGINE_AVC, 0);
 
-	/* flush buffers (output because otherwise we might read old data later) */
-	ve_flush_cache(context->bytestream_buffer, context->bytestream_buffer_size);
-	ve_flush_cache(context->luma_buffer, context->input_buffer_size);
-
 	/* set output buffer */
 	writel(0x0, context->regs + VE_AVC_VLE_OFFSET);
 	writel(ve_virt2phys(context->bytestream_buffer), context->regs + VE_AVC_VLE_ADDR);

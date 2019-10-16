@@ -28,11 +28,22 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
-#include "cedar_ve.h"
 #include "ve.h"
 #include "ve_regs.h"
 
 #define DEVICE "/dev/cedar_dev"
+
+enum IOCTL_CMD {
+	IOCTL_GET_ENV_INFO = 0x101,
+	IOCTL_WAIT_VE_EN = 0x103,
+};
+
+struct cedarv_env_infomation {
+	unsigned int phymem_start;
+	int phymem_total_size;
+	unsigned int address_macc;
+};
+
 #define PAGE_OFFSET (0xc0000000) // from kernel
 #define PAGE_SIZE (4096)
 
@@ -89,26 +100,6 @@ int ve_open(void)
 	ve.first_memchunk.phys_addr = info.phymem_start - PAGE_OFFSET;
 	ve.first_memchunk.size = info.phymem_total_size;
 
-	ret = ioctl(ve.fd, IOCTL_ENGINE_REQ, 0);
-	if (ret == -1)
-		fprintf(stderr, "%s(): IOCTL_ENGINE_REQ failed: %s\n",
-			__func__, strerror(errno));
-
-	ret = ioctl(ve.fd, IOCTL_ENABLE_VE, 0);
-	if (ret == -1)
-		fprintf(stderr, "%s(): IOCTL_ENABLE_VE failed: %s\n",
-			__func__, strerror(errno));
-
-	ret = ioctl(ve.fd, IOCTL_SET_VE_FREQ, 320);
-	if (ret == -1)
-		fprintf(stderr, "%s(): IOCTL_SET_VE_FREQ failed: %s\n",
-			__func__, strerror(errno));
-
-	ret = ioctl(ve.fd, IOCTL_RESET_VE, 0);
-	if (ret == -1)
-		fprintf(stderr, "%s(): IOCTL_RESET_VE failed: %s\n",
-			__func__, strerror(errno));
-
 	writel(0x00130007, ve.regs + VE_CTRL);
 
 	ve.version = readl(ve.regs + VE_VERSION) >> 16;
@@ -125,18 +116,6 @@ error:
 void
 ve_close(void)
 {
-	int ret;
-
-	ret = ioctl(ve.fd, IOCTL_DISABLE_VE, 0);
-	if (ret)
-		fprintf(stderr, "%s(): IOCTL_DISABLE_VE failed: %s\n",
-			__func__, strerror(errno));
-
-	ret = ioctl(ve.fd, IOCTL_ENGINE_REL, 0);
-	if (ret)
-		fprintf(stderr, "%s(): IOCTL_ENGINE_REL failed: %s\n",
-			__func__, strerror(errno));
-
 	munmap(ve.regs, 0x800);
 	ve.regs = NULL;
 
@@ -298,23 +277,4 @@ ve_virt2phys(void *ptr)
 	pthread_rwlock_unlock(&ve.memory_lock);
 
 	return addr;
-}
-
-int
-ve_flush_cache(void *start, int len)
-{
-	struct cedarv_cache_range range = {
-		.start = (long)start,
-		.end = (long)(start + len)
-	};
-	int ret;
-
-	ret = ioctl(ve.fd, IOCTL_FLUSH_CACHE, &range);
-	if (ret) {
-		fprintf(stderr, "%s(): IOCTL_FLUSH_CACHE failed: %s\n",
-			__func__, strerror(errno));
-		return ret;
-	}
-
-	return 0;
 }
