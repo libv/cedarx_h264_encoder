@@ -24,6 +24,7 @@
 
 #include "h264enc.h"
 #include "ve.h"
+#include "ve_regs.h"
 
 #define MSG(x) fprintf(stderr, "h264enc: " x "\n")
 

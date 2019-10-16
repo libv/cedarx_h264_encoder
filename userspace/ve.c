@@ -30,6 +30,7 @@
 
 #include "cedar_ve.h"
 #include "ve.h"
+#include "ve_regs.h"
 
 #define DEVICE "/dev/cedar_dev"
 #define PAGE_OFFSET (0xc0000000) // from kernel
