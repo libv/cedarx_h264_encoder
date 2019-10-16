@@ -61,6 +61,7 @@ struct h264enc_internal {
 	unsigned int keyframe_interval;
 
 	unsigned int current_frame_num;
+	unsigned int frame_count;
 	enum slice_type { SLICE_P = 0, SLICE_I = 2 } current_slice_type;
 
 };
@@ -444,13 +445,14 @@ int h264enc_encode_picture(h264enc *c)
 	/* save bytestream length */
 	c->bytestream_length = readl(c->regs + VE_AVC_VLE_LENGTH) / 8;
 
-	printf("Frame %d, size 0x%04X, status 0x%08X\n",
-	       c->current_frame_num, c->bytestream_length, status);
+	printf("\rFrame %5d, size 0x%04X, status 0x%08X",
+	       c->frame_count, c->bytestream_length, status);
 
 	/* next frame */
 	c->current_frame_num++;
 	if (c->current_frame_num >= c->keyframe_interval)
 		c->current_frame_num = 0;
+	c->frame_count++;
 
 	ve_put();
 
