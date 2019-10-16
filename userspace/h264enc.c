@@ -66,147 +66,180 @@ struct h264enc_context {
 
 };
 
-static void put_bits(void* regs, uint32_t x, int num)
+#define __maybe_unused  __attribute__((unused))
+static void __maybe_unused cedar_io_write(struct h264enc_context *context,
+					  int address, uint32_t value)
 {
-	writel(x, regs + VE_AVC_BASIC_BITS);
-	writel(0x1 | ((num & 0x1f) << 8), regs + VE_AVC_TRIGGER);
+	writel(value, context->regs + address);
+}
+
+static uint32_t __maybe_unused cedar_io_read(struct h264enc_context *context,
+					     int address)
+{
+	return readl(context->regs + address);
+}
+
+static void __maybe_unused cedar_io_mask(struct h264enc_context *context,
+					 int address,
+					 uint32_t value, uint32_t mask)
+{
+	uint32_t temp = readl(context->regs + address);
+
+	temp &= ~mask;
+	value &= mask;
+
+	writel(value | temp, context->regs + address);
+}
+
+#define h264enc_read(a) \
+	cedar_io_read(context, (a))
+#define h264enc_write(a, v) \
+	cedar_io_write(context, (a), (v))
+#define h264enc_mask(a, v, m) \
+	cedar_io_mask(context, (a), (v), (m))
+
+static void put_bits(struct h264enc_context *context, uint32_t x, int num)
+{
+	h264enc_write(VE_AVC_BASIC_BITS, x);
+	h264enc_write(VE_AVC_TRIGGER, 0x1 | ((num & 0x1f) << 8));
 	/* again the problem, how to check for finish? */
 }
 
-static void put_ue(void* regs, uint32_t x)
+static void put_ue(struct h264enc_context *context, uint32_t x)
 {
 	x++;
-	put_bits(regs, x, (32 - __builtin_clz(x)) * 2 - 1);
+	put_bits(context, x, (32 - __builtin_clz(x)) * 2 - 1);
 }
 
-static void put_se(void* regs, int x)
+static void put_se(struct h264enc_context *context, int x)
 {
 	x = 2 * x - 1;
 	x ^= (x >> 31);
-	put_ue(regs, x);
+	put_ue(context, x);
 }
 
-static void put_start_code(void* regs, unsigned int nal_ref_idc, unsigned int nal_unit_type)
+static void put_start_code(struct h264enc_context *context,
+			   unsigned int nal_ref_idc, unsigned int nal_unit_type)
 {
-	uint32_t tmp = readl(regs + VE_AVC_PARAM);
+	uint32_t tmp = h264enc_read(VE_AVC_PARAM);
 
 	/* disable emulation_prevention_three_byte */
-	writel(tmp | (0x1 << 31), regs + VE_AVC_PARAM);
+	h264enc_write(VE_AVC_PARAM, tmp | (0x1 << 31));
 
-	put_bits(regs, 0, 24);
-	put_bits(regs, 0x100 | (nal_ref_idc << 5) | (nal_unit_type << 0), 16);
+	put_bits(context, 0, 24);
+	put_bits(context, 0x100 | (nal_ref_idc << 5) | (nal_unit_type << 0), 16);
 
-	writel(tmp, regs + VE_AVC_PARAM);
+	h264enc_write(VE_AVC_PARAM, tmp);
 }
 
-static void put_rbsp_trailing_bits(void* regs)
+static void put_rbsp_trailing_bits(struct h264enc_context *context)
 {
-	unsigned int cur_bs_len = readl(regs + VE_AVC_VLE_LENGTH);
+	unsigned int cur_bs_len = h264enc_read(VE_AVC_VLE_LENGTH);
 
 	int num_zero_bits = 8 - ((cur_bs_len + 1) & 0x7);
-	put_bits(regs, 1 << num_zero_bits, num_zero_bits + 1);
+	put_bits(context, 1 << num_zero_bits, num_zero_bits + 1);
 }
 
 static void put_seq_parameter_set(struct h264enc_context *context)
 {
-	put_start_code(context->regs, 3, 7);
+	put_start_code(context, 3, 7);
 
-	put_bits(context->regs, context->profile_idc, 8);
-	put_bits(context->regs, context->constraints, 8);
-	put_bits(context->regs, context->level_idc, 8);
+	put_bits(context, context->profile_idc, 8);
+	put_bits(context, context->constraints, 8);
+	put_bits(context, context->level_idc, 8);
 
-	put_ue(context->regs, /* seq_parameter_set_id = */ 0);
+	put_ue(context, /* seq_parameter_set_id = */ 0);
 
-	put_ue(context->regs, /* log2_max_frame_num_minus4 = */ 0);
-	put_ue(context->regs, /* pic_order_cnt_type = */ 2);
+	put_ue(context, /* log2_max_frame_num_minus4 = */ 0);
+	put_ue(context, /* pic_order_cnt_type = */ 2);
 
-	put_ue(context->regs, /* max_num_ref_frames = */ 1);
-	put_bits(context->regs, /* gaps_in_frame_num_value_allowed_flag = */ 0, 1);
+	put_ue(context, /* max_num_ref_frames = */ 1);
+	put_bits(context, /* gaps_in_frame_num_value_allowed_flag = */ 0, 1);
 
-	put_ue(context->regs, context->mb_width - 1);
-	put_ue(context->regs, context->mb_height - 1);
+	put_ue(context, context->mb_width - 1);
+	put_ue(context, context->mb_height - 1);
 
-	put_bits(context->regs, /* frame_mbs_only_flag = */ 1, 1);
+	put_bits(context, /* frame_mbs_only_flag = */ 1, 1);
 
-	put_bits(context->regs, /* direct_8x8_inference_flag = */ 0, 1);
+	put_bits(context, /* direct_8x8_inference_flag = */ 0, 1);
 
 	unsigned int frame_cropping_flag = context->crop_right || context->crop_bottom;
-	put_bits(context->regs, frame_cropping_flag, 1);
+	put_bits(context, frame_cropping_flag, 1);
 	if (frame_cropping_flag) {
-		put_ue(context->regs, 0);
-		put_ue(context->regs, context->crop_right);
-		put_ue(context->regs, 0);
-		put_ue(context->regs, context->crop_bottom);
+		put_ue(context, 0);
+		put_ue(context, context->crop_right);
+		put_ue(context, 0);
+		put_ue(context, context->crop_bottom);
 	}
 
-	put_bits(context->regs, /* vui_parameters_present_flag = */ 0, 1);
+	put_bits(context, /* vui_parameters_present_flag = */ 0, 1);
 
-	put_rbsp_trailing_bits(context->regs);
+	put_rbsp_trailing_bits(context);
 }
 
 static void put_pic_parameter_set(struct h264enc_context *context)
 {
-	put_start_code(context->regs, 3, 8);
+	put_start_code(context, 3, 8);
 
-	put_ue(context->regs, /* pic_parameter_set_id = */ 0);
-	put_ue(context->regs, /* seq_parameter_set_id = */ 0);
+	put_ue(context, /* pic_parameter_set_id = */ 0);
+	put_ue(context, /* seq_parameter_set_id = */ 0);
 
-	put_bits(context->regs, context->entropy_coding_mode_flag, 1);
+	put_bits(context, context->entropy_coding_mode_flag, 1);
 
-	put_bits(context->regs, /* bottom_field_pic_order_in_frame_present_flag = */ 0, 1);
-	put_ue(context->regs, /* num_slice_groups_minus1 = */ 0);
+	put_bits(context, /* bottom_field_pic_order_in_frame_present_flag = */ 0, 1);
+	put_ue(context, /* num_slice_groups_minus1 = */ 0);
 
-	put_ue(context->regs, /* num_ref_idx_l0_default_active_minus1 = */ 0);
-	put_ue(context->regs, /* num_ref_idx_l1_default_active_minus1 = */ 0);
+	put_ue(context, /* num_ref_idx_l0_default_active_minus1 = */ 0);
+	put_ue(context, /* num_ref_idx_l1_default_active_minus1 = */ 0);
 
-	put_bits(context->regs, /* weighted_pred_flag = */ 0, 1);
-	put_bits(context->regs, /* weighted_bipred_idc = */ 0, 2);
+	put_bits(context, /* weighted_pred_flag = */ 0, 1);
+	put_bits(context, /* weighted_bipred_idc = */ 0, 2);
 
-	put_se(context->regs, (int)context->pic_init_qp - 26);
-	put_se(context->regs, (int)context->pic_init_qp - 26);
-	put_se(context->regs, /* chroma_qp_index_offset = */ 4);
+	put_se(context, (int)context->pic_init_qp - 26);
+	put_se(context, (int)context->pic_init_qp - 26);
+	put_se(context, /* chroma_qp_index_offset = */ 4);
 
-	put_bits(context->regs, /* deblocking_filter_control_present_flag = */ 1, 1);
-	put_bits(context->regs, /* constrained_intra_pred_flag = */ 0, 1);
-	put_bits(context->regs, /* redundant_pic_cnt_present_flag = */ 0, 1);
+	put_bits(context, /* deblocking_filter_control_present_flag = */ 1, 1);
+	put_bits(context, /* constrained_intra_pred_flag = */ 0, 1);
+	put_bits(context, /* redundant_pic_cnt_present_flag = */ 0, 1);
 
-	put_rbsp_trailing_bits(context->regs);
+	put_rbsp_trailing_bits(context);
 }
 
 static void put_slice_header(struct h264enc_context *context)
 {
 	if (context->current_slice_type == SLICE_I)
-		put_start_code(context->regs, 3, 5);
+		put_start_code(context, 3, 5);
 	else
-		put_start_code(context->regs, 2, 1);
+		put_start_code(context, 2, 1);
 
-	put_ue(context->regs, /* first_mb_in_slice = */ 0);
-	put_ue(context->regs, context->current_slice_type);
-	put_ue(context->regs, /* pic_parameter_set_id = */ 0);
+	put_ue(context, /* first_mb_in_slice = */ 0);
+	put_ue(context, context->current_slice_type);
+	put_ue(context, /* pic_parameter_set_id = */ 0);
 
-	put_bits(context->regs, context->current_frame_num & 0xf, 4);
+	put_bits(context, context->current_frame_num & 0xf, 4);
 
 	if (context->current_slice_type == SLICE_I)
-		put_ue(context->regs, /* idr_pic_id = */ 0);
+		put_ue(context, /* idr_pic_id = */ 0);
 
 	if (context->current_slice_type == SLICE_P) {
-		put_bits(context->regs, /* num_ref_idx_active_override_flag = */ 0, 1);
-		put_bits(context->regs, /* ref_pic_list_modification_flag_l0 = */ 0, 1);
-		put_bits(context->regs, /* adaptive_ref_pic_marking_mode_flag = */ 0, 1);
+		put_bits(context, /* num_ref_idx_active_override_flag = */ 0, 1);
+		put_bits(context, /* ref_pic_list_modification_flag_l0 = */ 0, 1);
+		put_bits(context, /* adaptive_ref_pic_marking_mode_flag = */ 0, 1);
 		if (context->entropy_coding_mode_flag)
-			put_ue(context->regs, /* cabac_init_idc = */ 0);
+			put_ue(context, /* cabac_init_idc = */ 0);
 	}
 
 	if (context->current_slice_type == SLICE_I) {
-		put_bits(context->regs, /* no_output_of_prior_pics_flag = */ 0, 1);
-		put_bits(context->regs, /* long_term_reference_flag = */ 0, 1);
+		put_bits(context, /* no_output_of_prior_pics_flag = */ 0, 1);
+		put_bits(context, /* long_term_reference_flag = */ 0, 1);
 	}
 
-	put_se(context->regs, /* slice_qp_delta = */ 0);
+	put_se(context, /* slice_qp_delta = */ 0);
 
-	put_ue(context->regs, /* disable_deblocking_filter_idc = */ 0);
-	put_se(context->regs, /* slice_alpha_c0_offset_div2 = */ 0);
-	put_se(context->regs, /* slice_beta_offset_div2 = */ 0);
+	put_ue(context, /* disable_deblocking_filter_idc = */ 0);
+	put_se(context, /* slice_alpha_c0_offset_div2 = */ 0);
+	put_se(context, /* slice_beta_offset_div2 = */ 0);
 }
 
 void h264enc_free(struct h264enc_context *context)
@@ -375,10 +408,11 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	context->regs = ve_get(VE_ENGINE_AVC, 0);
 
 	/* set output buffer */
-	writel(0x0, context->regs + VE_AVC_VLE_OFFSET);
-	writel(ve_virt2phys(context->bytestream_buffer), context->regs + VE_AVC_VLE_ADDR);
-	writel(ve_virt2phys(context->bytestream_buffer) + context->bytestream_buffer_size - 1, context->regs + VE_AVC_VLE_END);
-	writel(context->bytestream_buffer_size * 8, context->regs + VE_AVC_VLE_MAX);
+	h264enc_write(VE_AVC_VLE_OFFSET, 0);
+	h264enc_write(VE_AVC_VLE_ADDR, ve_virt2phys(context->bytestream_buffer));
+	h264enc_write(VE_AVC_VLE_END, ve_virt2phys(context->bytestream_buffer) +
+		      context->bytestream_buffer_size - 1);
+	h264enc_write(VE_AVC_VLE_MAX, context->bytestream_buffer_size * 8);
 
 	/* write headers */
 	if (context->write_sps_pps) {
@@ -389,37 +423,37 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	put_slice_header(context);
 
 	/* set input size */
-	writel(context->mb_stride << 16, context->regs + VE_ISP_INPUT_STRIDE);
-	writel((context->mb_width << 16) | (context->mb_height << 0), context->regs + VE_ISP_INPUT_SIZE);
+	h264enc_write(VE_ISP_INPUT_STRIDE, context->mb_stride << 16);
+	h264enc_write(VE_ISP_INPUT_SIZE, (context->mb_width << 16) | (context->mb_height << 0));
 
 	/* set input format */
-	writel(context->input_color_format << 29, context->regs + VE_ISP_CTRL);
+	h264enc_write(VE_ISP_CTRL, context->input_color_format << 29);
 
 	/* set input buffer */
-	writel(ve_virt2phys(context->luma_buffer), context->regs + VE_ISP_INPUT_LUMA);
-	writel(ve_virt2phys(context->chroma_buffer), context->regs + VE_ISP_INPUT_CHROMA);
+	h264enc_write(VE_ISP_INPUT_LUMA, ve_virt2phys(context->luma_buffer));
+	h264enc_write(VE_ISP_INPUT_CHROMA, ve_virt2phys(context->chroma_buffer));
 
 	/* set reconstruction buffers */
 	struct h264enc_ref_pic *ref_pic = &context->ref_picture[context->current_frame_num % 2];
-	writel(ve_virt2phys(ref_pic->luma_buffer), context->regs + VE_AVC_REC_LUMA);
-	writel(ve_virt2phys(ref_pic->chroma_buffer), context->regs + VE_AVC_REC_CHROMA);
-	writel(ve_virt2phys(ref_pic->extra_buffer), context->regs + VE_AVC_REC_SLUMA);
+	h264enc_write(VE_AVC_REC_LUMA, ve_virt2phys(ref_pic->luma_buffer));
+	h264enc_write(VE_AVC_REC_CHROMA, ve_virt2phys(ref_pic->chroma_buffer));
+	h264enc_write(VE_AVC_REC_SLUMA, ve_virt2phys(ref_pic->extra_buffer));
 
 	/* set reference buffers */
 	if (context->current_slice_type != SLICE_I) {
 		ref_pic = &context->ref_picture[(context->current_frame_num + 1) % 2];
-		writel(ve_virt2phys(ref_pic->luma_buffer), context->regs + VE_AVC_REF_LUMA);
-		writel(ve_virt2phys(ref_pic->chroma_buffer), context->regs + VE_AVC_REF_CHROMA);
-		writel(ve_virt2phys(ref_pic->extra_buffer), context->regs + VE_AVC_REF_SLUMA);
+		h264enc_write(VE_AVC_REF_LUMA, ve_virt2phys(ref_pic->luma_buffer));
+		h264enc_write(VE_AVC_REF_CHROMA, ve_virt2phys(ref_pic->chroma_buffer));
+		h264enc_write(VE_AVC_REF_SLUMA, ve_virt2phys(ref_pic->extra_buffer));
 	}
 
 	/* set unknown purpose buffers */
-	writel(ve_virt2phys(context->extra_buffer_line), context->regs + VE_AVC_MB_INFO);
-	writel(ve_virt2phys(context->extra_buffer_frame), context->regs + VE_AVC_UNK_BUF);
+	h264enc_write(VE_AVC_MB_INFO, ve_virt2phys(context->extra_buffer_line));
+	h264enc_write(VE_AVC_UNK_BUF, ve_virt2phys(context->extra_buffer_frame));
 
 	/* enable interrupt and clear status flags */
-	writel(readl(context->regs + VE_AVC_CTRL) | 0xf, context->regs + VE_AVC_CTRL);
-	writel(readl(context->regs + VE_AVC_STATUS) | 0x7, context->regs + VE_AVC_STATUS);
+	h264enc_mask(VE_AVC_CTRL, 0x0F, 0x0F);
+	h264enc_mask(VE_AVC_STATUS, 0x07, 0x07);
 
 	/* set encoding parameters */
 	uint32_t params = 0x0;
@@ -427,20 +461,21 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		params |= 0x100;
 	if (context->current_slice_type == SLICE_P)
 		params |= 0x10;
-	writel(params, context->regs + VE_AVC_PARAM);
-	writel((4 << 16) | (context->pic_init_qp << 8) | context->pic_init_qp, context->regs + VE_AVC_QP);
-	writel(0x00000104, context->regs + VE_AVC_MOTION_EST);
+	h264enc_write(VE_AVC_PARAM, params);
+	h264enc_write(VE_AVC_QP, (4 << 16) | (context->pic_init_qp << 8) | context->pic_init_qp);
+
+	h264enc_write(VE_AVC_MOTION_EST, 0x00000104);
 
 	/* trigger encoding */
-	writel(0x8, context->regs + VE_AVC_TRIGGER);
+	h264enc_write(VE_AVC_TRIGGER, 0x08);
 	ve_wait(1);
 
 	/* check result */
-	uint32_t status = readl(context->regs + VE_AVC_STATUS);
-	writel(status, context->regs + VE_AVC_STATUS);
+	uint32_t status = h264enc_read(VE_AVC_STATUS);
+	h264enc_write(VE_AVC_STATUS, status);
 
 	/* save bytestream length */
-	context->bytestream_length = readl(context->regs + VE_AVC_VLE_LENGTH) / 8;
+	context->bytestream_length = h264enc_read(VE_AVC_VLE_LENGTH) / 8;
 
 	printf("\rFrame %5d", context->frame_count);
 
