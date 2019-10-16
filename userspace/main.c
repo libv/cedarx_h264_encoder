@@ -49,7 +49,7 @@ static int read_frame(int fd, void *buffer, int size)
 int main(int argc, char **argv)
 {
 	struct h264enc_params params;
-	h264enc *encoder;
+	struct h264enc_context *context;
 	void *input_buf, *output_buf;
 	int width, height, input_size, ret;
 	int in, out;
@@ -100,23 +100,23 @@ int main(int argc, char **argv)
 
 	input_size = params.src_width * (params.src_height + params.src_height / 2);
 
-	encoder = h264enc_new(&params);
-	if (!encoder) {
-		fprintf(stderr, "%s: could not create encoder\n", __func__);
+	context = h264enc_new(&params);
+	if (!context) {
+		fprintf(stderr, "%s: could not create context\n", __func__);
 		return EXIT_FAILURE;
 	}
 
-	output_buf = h264enc_get_bytestream_buffer(encoder);
-	input_buf = h264enc_get_input_buffer(encoder);
+	output_buf = h264enc_get_bytestream_buffer(context);
+	input_buf = h264enc_get_input_buffer(context);
 
 	while (!read_frame(in, input_buf, input_size)) {
-		if (!h264enc_encode_picture(encoder))
-			write(out, output_buf, h264enc_get_bytestream_length(encoder));
+		if (!h264enc_encode_picture(context))
+			write(out, output_buf, h264enc_get_bytestream_length(context));
 		else
 			fprintf(stderr, "%s: encoding error.\n", __func__);
 	}
 
-	h264enc_free(encoder);
+	h264enc_free(context);
 
 	return EXIT_SUCCESS;
 }

@@ -21,6 +21,8 @@
 #ifndef __H264ENC_H__
 #define __H264ENC_H__
 
+struct h264enc_context;
+
 struct h264enc_params {
 	unsigned int width;
 	unsigned int height;
@@ -38,13 +40,11 @@ struct h264enc_params {
 	unsigned int keyframe_interval;
 };
 
-typedef struct h264enc_internal h264enc;
-
-h264enc *h264enc_new(const struct h264enc_params *p);
-void h264enc_free(h264enc *c);
-void *h264enc_get_input_buffer(const h264enc *c);
-void *h264enc_get_bytestream_buffer(const h264enc *c);
-unsigned int h264enc_get_bytestream_length(const h264enc *c);
-int h264enc_encode_picture(h264enc *c);
+struct h264enc_context *h264enc_new(struct h264enc_params *p);
+void h264enc_free(struct h264enc_context *context);
+void *h264enc_get_input_buffer(struct h264enc_context *context);
+void *h264enc_get_bytestream_buffer(struct h264enc_context *context);
+unsigned int h264enc_get_bytestream_length(struct h264enc_context *context);
+int h264enc_encode_picture(struct h264enc_context *context);
 
 #endif

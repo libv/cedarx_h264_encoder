@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include "h264enc.h"
 #include "ve.h"
 
@@ -30,7 +31,7 @@
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-struct h264enc_internal {
+struct h264enc_context {
 	unsigned int mb_width, mb_height, mb_stride;
 	unsigned int crop_right, crop_bottom;
 
@@ -107,216 +108,217 @@ static void put_rbsp_trailing_bits(void* regs)
 	put_bits(regs, 1 << num_zero_bits, num_zero_bits + 1);
 }
 
-static void put_seq_parameter_set(h264enc *c)
+static void put_seq_parameter_set(struct h264enc_context *context)
 {
-	put_start_code(c->regs, 3, 7);
+	put_start_code(context->regs, 3, 7);
 
-	put_bits(c->regs, c->profile_idc, 8);
-	put_bits(c->regs, c->constraints, 8);
-	put_bits(c->regs, c->level_idc, 8);
+	put_bits(context->regs, context->profile_idc, 8);
+	put_bits(context->regs, context->constraints, 8);
+	put_bits(context->regs, context->level_idc, 8);
 
-	put_ue(c->regs, /* seq_parameter_set_id = */ 0);
+	put_ue(context->regs, /* seq_parameter_set_id = */ 0);
 
-	put_ue(c->regs, /* log2_max_frame_num_minus4 = */ 0);
-	put_ue(c->regs, /* pic_order_cnt_type = */ 2);
+	put_ue(context->regs, /* log2_max_frame_num_minus4 = */ 0);
+	put_ue(context->regs, /* pic_order_cnt_type = */ 2);
 
-	put_ue(c->regs, /* max_num_ref_frames = */ 1);
-	put_bits(c->regs, /* gaps_in_frame_num_value_allowed_flag = */ 0, 1);
+	put_ue(context->regs, /* max_num_ref_frames = */ 1);
+	put_bits(context->regs, /* gaps_in_frame_num_value_allowed_flag = */ 0, 1);
 
-	put_ue(c->regs, c->mb_width - 1);
-	put_ue(c->regs, c->mb_height - 1);
+	put_ue(context->regs, context->mb_width - 1);
+	put_ue(context->regs, context->mb_height - 1);
 
-	put_bits(c->regs, /* frame_mbs_only_flag = */ 1, 1);
+	put_bits(context->regs, /* frame_mbs_only_flag = */ 1, 1);
 
-	put_bits(c->regs, /* direct_8x8_inference_flag = */ 0, 1);
+	put_bits(context->regs, /* direct_8x8_inference_flag = */ 0, 1);
 
-	unsigned int frame_cropping_flag = c->crop_right || c->crop_bottom;
-	put_bits(c->regs, frame_cropping_flag, 1);
+	unsigned int frame_cropping_flag = context->crop_right || context->crop_bottom;
+	put_bits(context->regs, frame_cropping_flag, 1);
 	if (frame_cropping_flag) {
-		put_ue(c->regs, 0);
-		put_ue(c->regs, c->crop_right);
-		put_ue(c->regs, 0);
-		put_ue(c->regs, c->crop_bottom);
+		put_ue(context->regs, 0);
+		put_ue(context->regs, context->crop_right);
+		put_ue(context->regs, 0);
+		put_ue(context->regs, context->crop_bottom);
 	}
 
-	put_bits(c->regs, /* vui_parameters_present_flag = */ 0, 1);
+	put_bits(context->regs, /* vui_parameters_present_flag = */ 0, 1);
 
-	put_rbsp_trailing_bits(c->regs);
+	put_rbsp_trailing_bits(context->regs);
 }
 
-static void put_pic_parameter_set(h264enc *c)
+static void put_pic_parameter_set(struct h264enc_context *context)
 {
-	put_start_code(c->regs, 3, 8);
+	put_start_code(context->regs, 3, 8);
 
-	put_ue(c->regs, /* pic_parameter_set_id = */ 0);
-	put_ue(c->regs, /* seq_parameter_set_id = */ 0);
+	put_ue(context->regs, /* pic_parameter_set_id = */ 0);
+	put_ue(context->regs, /* seq_parameter_set_id = */ 0);
 
-	put_bits(c->regs, c->entropy_coding_mode_flag, 1);
+	put_bits(context->regs, context->entropy_coding_mode_flag, 1);
 
-	put_bits(c->regs, /* bottom_field_pic_order_in_frame_present_flag = */ 0, 1);
-	put_ue(c->regs, /* num_slice_groups_minus1 = */ 0);
+	put_bits(context->regs, /* bottom_field_pic_order_in_frame_present_flag = */ 0, 1);
+	put_ue(context->regs, /* num_slice_groups_minus1 = */ 0);
 
-	put_ue(c->regs, /* num_ref_idx_l0_default_active_minus1 = */ 0);
-	put_ue(c->regs, /* num_ref_idx_l1_default_active_minus1 = */ 0);
+	put_ue(context->regs, /* num_ref_idx_l0_default_active_minus1 = */ 0);
+	put_ue(context->regs, /* num_ref_idx_l1_default_active_minus1 = */ 0);
 
-	put_bits(c->regs, /* weighted_pred_flag = */ 0, 1);
-	put_bits(c->regs, /* weighted_bipred_idc = */ 0, 2);
+	put_bits(context->regs, /* weighted_pred_flag = */ 0, 1);
+	put_bits(context->regs, /* weighted_bipred_idc = */ 0, 2);
 
-	put_se(c->regs, (int)c->pic_init_qp - 26);
-	put_se(c->regs, (int)c->pic_init_qp - 26);
-	put_se(c->regs, /* chroma_qp_index_offset = */ 4);
+	put_se(context->regs, (int)context->pic_init_qp - 26);
+	put_se(context->regs, (int)context->pic_init_qp - 26);
+	put_se(context->regs, /* chroma_qp_index_offset = */ 4);
 
-	put_bits(c->regs, /* deblocking_filter_control_present_flag = */ 1, 1);
-	put_bits(c->regs, /* constrained_intra_pred_flag = */ 0, 1);
-	put_bits(c->regs, /* redundant_pic_cnt_present_flag = */ 0, 1);
+	put_bits(context->regs, /* deblocking_filter_control_present_flag = */ 1, 1);
+	put_bits(context->regs, /* constrained_intra_pred_flag = */ 0, 1);
+	put_bits(context->regs, /* redundant_pic_cnt_present_flag = */ 0, 1);
 
-	put_rbsp_trailing_bits(c->regs);
+	put_rbsp_trailing_bits(context->regs);
 }
 
-static void put_slice_header(h264enc *c)
+static void put_slice_header(struct h264enc_context *context)
 {
-	if (c->current_slice_type == SLICE_I)
-		put_start_code(c->regs, 3, 5);
+	if (context->current_slice_type == SLICE_I)
+		put_start_code(context->regs, 3, 5);
 	else
-		put_start_code(c->regs, 2, 1);
+		put_start_code(context->regs, 2, 1);
 
-	put_ue(c->regs, /* first_mb_in_slice = */ 0);
-	put_ue(c->regs, c->current_slice_type);
-	put_ue(c->regs, /* pic_parameter_set_id = */ 0);
+	put_ue(context->regs, /* first_mb_in_slice = */ 0);
+	put_ue(context->regs, context->current_slice_type);
+	put_ue(context->regs, /* pic_parameter_set_id = */ 0);
 
-	put_bits(c->regs, c->current_frame_num & 0xf, 4);
+	put_bits(context->regs, context->current_frame_num & 0xf, 4);
 
-	if (c->current_slice_type == SLICE_I)
-		put_ue(c->regs, /* idr_pic_id = */ 0);
+	if (context->current_slice_type == SLICE_I)
+		put_ue(context->regs, /* idr_pic_id = */ 0);
 
-	if (c->current_slice_type == SLICE_P) {
-		put_bits(c->regs, /* num_ref_idx_active_override_flag = */ 0, 1);
-		put_bits(c->regs, /* ref_pic_list_modification_flag_l0 = */ 0, 1);
-		put_bits(c->regs, /* adaptive_ref_pic_marking_mode_flag = */ 0, 1);
-		if (c->entropy_coding_mode_flag)
-			put_ue(c->regs, /* cabac_init_idc = */ 0);
+	if (context->current_slice_type == SLICE_P) {
+		put_bits(context->regs, /* num_ref_idx_active_override_flag = */ 0, 1);
+		put_bits(context->regs, /* ref_pic_list_modification_flag_l0 = */ 0, 1);
+		put_bits(context->regs, /* adaptive_ref_pic_marking_mode_flag = */ 0, 1);
+		if (context->entropy_coding_mode_flag)
+			put_ue(context->regs, /* cabac_init_idc = */ 0);
 	}
 
-	if (c->current_slice_type == SLICE_I) {
-		put_bits(c->regs, /* no_output_of_prior_pics_flag = */ 0, 1);
-		put_bits(c->regs, /* long_term_reference_flag = */ 0, 1);
+	if (context->current_slice_type == SLICE_I) {
+		put_bits(context->regs, /* no_output_of_prior_pics_flag = */ 0, 1);
+		put_bits(context->regs, /* long_term_reference_flag = */ 0, 1);
 	}
 
-	put_se(c->regs, /* slice_qp_delta = */ 0);
+	put_se(context->regs, /* slice_qp_delta = */ 0);
 
-	put_ue(c->regs, /* disable_deblocking_filter_idc = */ 0);
-	put_se(c->regs, /* slice_alpha_c0_offset_div2 = */ 0);
-	put_se(c->regs, /* slice_beta_offset_div2 = */ 0);
+	put_ue(context->regs, /* disable_deblocking_filter_idc = */ 0);
+	put_se(context->regs, /* slice_alpha_c0_offset_div2 = */ 0);
+	put_se(context->regs, /* slice_beta_offset_div2 = */ 0);
 }
 
-void h264enc_free(h264enc *c)
+void h264enc_free(struct h264enc_context *context)
 {
 	int i;
 
-	ve_free(c->extra_buffer_line);
-	ve_free(c->extra_buffer_frame);
+	ve_free(context->extra_buffer_line);
+	ve_free(context->extra_buffer_frame);
 
 	for (i = 0; i < 2; i++) {
-		ve_free(c->ref_picture[i].luma_buffer);
-		ve_free(c->ref_picture[i].extra_buffer);
+		ve_free(context->ref_picture[i].luma_buffer);
+		ve_free(context->ref_picture[i].extra_buffer);
 	}
 
-	ve_free(c->bytestream_buffer);
-	ve_free(c->luma_buffer);
-	free(c);
+	ve_free(context->bytestream_buffer);
+	ve_free(context->luma_buffer);
+	free(context);
 }
 
-h264enc *h264enc_new(const struct h264enc_params *p)
+struct h264enc_context *
+h264enc_new(struct h264enc_params *params)
 {
-	h264enc *c;
+	struct h264enc_context *context;
 	int i;
 
 	/* check parameter validity */
-	if (!IS_ALIGNED(p->src_width, 16) || !IS_ALIGNED(p->src_height, 16) ||
-	    !IS_ALIGNED(p->width, 2) || !IS_ALIGNED(p->height, 2) ||
-	    p->width > p->src_width || p->height > p->src_height) {
+	if (!IS_ALIGNED(params->src_width, 16) || !IS_ALIGNED(params->src_height, 16) ||
+	    !IS_ALIGNED(params->width, 2) || !IS_ALIGNED(params->height, 2) ||
+	    params->width > params->src_width || params->height > params->src_height) {
 		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
 		return NULL;
 	}
 
-	if (p->qp == 0 || p->qp > 47) {
+	if (params->qp == 0 || params->qp > 47) {
 		fprintf(stderr, "%s(): invalid QP.\n", __func__);
 		return NULL;
 	}
 
-	if (p->src_format != H264_FMT_NV12 && p->src_format != H264_FMT_NV16) {
+	if (params->src_format != H264_FMT_NV12 && params->src_format != H264_FMT_NV16) {
 		fprintf(stderr, "%s(): invalid color format.\n", __func__);
 		return NULL;
 	}
 
 	/* allocate memory for h264enc structure */
-	c = calloc(1, sizeof(*c));
-	if (c == NULL) {
+	context = calloc(1, sizeof(struct h264enc_context));
+	if (context == NULL) {
 		fprintf(stderr, "%s(): can't allocate h264enc context.\n",
 			__func__);
 		return NULL;
 	}
 
 	/* copy parameters */
-	c->mb_width = DIV_ROUND_UP(p->width, 16);
-	c->mb_height = DIV_ROUND_UP(p->height, 16);
-	c->mb_stride = p->src_width / 16;
+	context->mb_width = DIV_ROUND_UP(params->width, 16);
+	context->mb_height = DIV_ROUND_UP(params->height, 16);
+	context->mb_stride = params->src_width / 16;
 
-	c->crop_right = (c->mb_width * 16 - p->width) / 2;
-	c->crop_bottom = (c->mb_height * 16 - p->height) / 2;
+	context->crop_right = (context->mb_width * 16 - params->width) / 2;
+	context->crop_bottom = (context->mb_height * 16 - params->height) / 2;
 
-	c->profile_idc = p->profile_idc;
-	c->level_idc = p->level_idc;
+	context->profile_idc = params->profile_idc;
+	context->level_idc = params->level_idc;
 
-	c->entropy_coding_mode_flag = p->entropy_coding_mode ? 1 : 0;
-	c->pic_init_qp = p->qp;
-	c->keyframe_interval = p->keyframe_interval;
+	context->entropy_coding_mode_flag = params->entropy_coding_mode ? 1 : 0;
+	context->pic_init_qp = params->qp;
+	context->keyframe_interval = params->keyframe_interval;
 
-	c->write_sps_pps = 1;
-	c->current_frame_num = 0;
+	context->write_sps_pps = 1;
+	context->current_frame_num = 0;
 
 	/* allocate input buffer */
-	c->input_color_format = p->src_format;
-	switch (c->input_color_format) {
+	context->input_color_format = params->src_format;
+	switch (context->input_color_format) {
 	case H264_FMT_NV12:
-		c->input_buffer_size = p->src_width * (p->src_height + p->src_height / 2);
+		context->input_buffer_size = params->src_width * (params->src_height + params->src_height / 2);
 		break;
 	case H264_FMT_NV16:
-		c->input_buffer_size = p->src_width * p->src_height * 2;
+		context->input_buffer_size = params->src_width * params->src_height * 2;
 		break;
 	}
 
-	c->luma_buffer = ve_malloc(c->input_buffer_size);
-	if (!c->luma_buffer) {
+	context->luma_buffer = ve_malloc(context->input_buffer_size);
+	if (!context->luma_buffer) {
 		fprintf(stderr, "%s(): failed to allocate input buffer.\n",
 			__func__);
 		goto error;
 	}
-	c->chroma_buffer = c->luma_buffer + p->src_width * p->src_height;
+	context->chroma_buffer = context->luma_buffer + params->src_width * params->src_height;
 
 	/* allocate bytestream output buffer */
-	c->bytestream_buffer_size = 1 * 1024 * 1024;
-	c->bytestream_buffer = ve_malloc(c->bytestream_buffer_size);
-	if (!c->bytestream_buffer) {
+	context->bytestream_buffer_size = 1 * 1024 * 1024;
+	context->bytestream_buffer = ve_malloc(context->bytestream_buffer_size);
+	if (!context->bytestream_buffer) {
 		fprintf(stderr, "%s(): failed to allocate bytestream buffer.\n",
 			__func__);
 		goto error;
 	}
 
 	/* allocate reference picture memory */
-	unsigned int luma_size = ALIGN(c->mb_width * 16, 32) * ALIGN(c->mb_height * 16, 32);
-	unsigned int chroma_size = ALIGN(c->mb_width * 16, 32) * ALIGN(c->mb_height * 8, 32);
+	unsigned int luma_size = ALIGN(context->mb_width * 16, 32) * ALIGN(context->mb_height * 16, 32);
+	unsigned int chroma_size = ALIGN(context->mb_width * 16, 32) * ALIGN(context->mb_height * 8, 32);
 	for (i = 0; i < 2; i++) {
-		c->ref_picture[i].luma_buffer = ve_malloc(luma_size + chroma_size);
-		if (!c->ref_picture[i].luma_buffer) {
+		context->ref_picture[i].luma_buffer = ve_malloc(luma_size + chroma_size);
+		if (!context->ref_picture[i].luma_buffer) {
 			fprintf(stderr, "%s(): failed to allocate reference "
 				"picture %d buffer.\n", __func__, i);
 			goto error;
 		}
-		c->ref_picture[i].chroma_buffer = c->ref_picture[i].luma_buffer + luma_size;
+		context->ref_picture[i].chroma_buffer = context->ref_picture[i].luma_buffer + luma_size;
 
-		c->ref_picture[i].extra_buffer = ve_malloc(luma_size / 4);
-		if (!c->ref_picture[i].extra_buffer) {
+		context->ref_picture[i].extra_buffer = ve_malloc(luma_size / 4);
+		if (!context->ref_picture[i].extra_buffer) {
 			fprintf(stderr, "%s(): failed to allocate reference "
 				"picture %d extra buffer.\n", __func__, i);
 			goto error;
@@ -324,135 +326,135 @@ h264enc *h264enc_new(const struct h264enc_params *p)
 	}
 
 	/* allocate unknown purpose buffers */
-	c->extra_buffer_frame = ve_malloc(ALIGN(c->mb_width, 4) * c->mb_height * 8);
-	if (!c->extra_buffer_frame) {
+	context->extra_buffer_frame = ve_malloc(ALIGN(context->mb_width, 4) * context->mb_height * 8);
+	if (!context->extra_buffer_frame) {
 		fprintf(stderr, "%s(): failed to allocate extra buffer frame.\n",
 			__func__);
 		goto error;
 	}
-	c->extra_buffer_line = ve_malloc(c->mb_width * 32);
-	if (!c->extra_buffer_line) {
+	context->extra_buffer_line = ve_malloc(context->mb_width * 32);
+	if (!context->extra_buffer_line) {
 		fprintf(stderr, "%s(): failed to allocate extra buffer line.\n",
 			__func__);
 		goto error;
 	}
 
-	return c;
+	return context;
 
  error:
-	ve_free(c->extra_buffer_line);
-	ve_free(c->extra_buffer_frame);
-	ve_free(c->ref_picture[1].luma_buffer);
-	ve_free(c->ref_picture[1].extra_buffer);
-	ve_free(c->ref_picture[0].luma_buffer);
-	ve_free(c->ref_picture[0].extra_buffer);
-	ve_free(c->bytestream_buffer);
-	ve_free(c->luma_buffer);
-	h264enc_free(c);
+	ve_free(context->extra_buffer_line);
+	ve_free(context->extra_buffer_frame);
+	ve_free(context->ref_picture[1].luma_buffer);
+	ve_free(context->ref_picture[1].extra_buffer);
+	ve_free(context->ref_picture[0].luma_buffer);
+	ve_free(context->ref_picture[0].extra_buffer);
+	ve_free(context->bytestream_buffer);
+	ve_free(context->luma_buffer);
+	h264enc_free(context);
 	return NULL;
 }
 
-void *h264enc_get_input_buffer(const h264enc *c)
+void *h264enc_get_input_buffer(struct h264enc_context *context)
 {
-	return c->luma_buffer;
+	return context->luma_buffer;
 }
 
-void *h264enc_get_bytestream_buffer(const h264enc *c)
+void *h264enc_get_bytestream_buffer(struct h264enc_context *context)
 {
-	return c->bytestream_buffer;
+	return context->bytestream_buffer;
 }
 
-unsigned int h264enc_get_bytestream_length(const h264enc *c)
+unsigned int h264enc_get_bytestream_length(struct h264enc_context *context)
 {
-	return c->bytestream_length;
+	return context->bytestream_length;
 }
 
-int h264enc_encode_picture(h264enc *c)
+int h264enc_encode_picture(struct h264enc_context *context)
 {
-	c->current_slice_type = c->current_frame_num ? SLICE_P : SLICE_I;
+	context->current_slice_type = context->current_frame_num ? SLICE_P : SLICE_I;
 
-	c->regs = ve_get(VE_ENGINE_AVC, 0);
+	context->regs = ve_get(VE_ENGINE_AVC, 0);
 
 	/* flush buffers (output because otherwise we might read old data later) */
-	ve_flush_cache(c->bytestream_buffer, c->bytestream_buffer_size);
-	ve_flush_cache(c->luma_buffer, c->input_buffer_size);
+	ve_flush_cache(context->bytestream_buffer, context->bytestream_buffer_size);
+	ve_flush_cache(context->luma_buffer, context->input_buffer_size);
 
 	/* set output buffer */
-	writel(0x0, c->regs + VE_AVC_VLE_OFFSET);
-	writel(ve_virt2phys(c->bytestream_buffer), c->regs + VE_AVC_VLE_ADDR);
-	writel(ve_virt2phys(c->bytestream_buffer) + c->bytestream_buffer_size - 1, c->regs + VE_AVC_VLE_END);
-	writel(c->bytestream_buffer_size * 8, c->regs + VE_AVC_VLE_MAX);
+	writel(0x0, context->regs + VE_AVC_VLE_OFFSET);
+	writel(ve_virt2phys(context->bytestream_buffer), context->regs + VE_AVC_VLE_ADDR);
+	writel(ve_virt2phys(context->bytestream_buffer) + context->bytestream_buffer_size - 1, context->regs + VE_AVC_VLE_END);
+	writel(context->bytestream_buffer_size * 8, context->regs + VE_AVC_VLE_MAX);
 
 	/* write headers */
-	if (c->write_sps_pps) {
-		put_seq_parameter_set(c);
-		put_pic_parameter_set(c);
-		c->write_sps_pps = 0;
+	if (context->write_sps_pps) {
+		put_seq_parameter_set(context);
+		put_pic_parameter_set(context);
+		context->write_sps_pps = 0;
 	}
-	put_slice_header(c);
+	put_slice_header(context);
 
 	/* set input size */
-	writel(c->mb_stride << 16, c->regs + VE_ISP_INPUT_STRIDE);
-	writel((c->mb_width << 16) | (c->mb_height << 0), c->regs + VE_ISP_INPUT_SIZE);
+	writel(context->mb_stride << 16, context->regs + VE_ISP_INPUT_STRIDE);
+	writel((context->mb_width << 16) | (context->mb_height << 0), context->regs + VE_ISP_INPUT_SIZE);
 
 	/* set input format */
-	writel(c->input_color_format << 29, c->regs + VE_ISP_CTRL);
+	writel(context->input_color_format << 29, context->regs + VE_ISP_CTRL);
 
 	/* set input buffer */
-	writel(ve_virt2phys(c->luma_buffer), c->regs + VE_ISP_INPUT_LUMA);
-	writel(ve_virt2phys(c->chroma_buffer), c->regs + VE_ISP_INPUT_CHROMA);
+	writel(ve_virt2phys(context->luma_buffer), context->regs + VE_ISP_INPUT_LUMA);
+	writel(ve_virt2phys(context->chroma_buffer), context->regs + VE_ISP_INPUT_CHROMA);
 
 	/* set reconstruction buffers */
-	struct h264enc_ref_pic *ref_pic = &c->ref_picture[c->current_frame_num % 2];
-	writel(ve_virt2phys(ref_pic->luma_buffer), c->regs + VE_AVC_REC_LUMA);
-	writel(ve_virt2phys(ref_pic->chroma_buffer), c->regs + VE_AVC_REC_CHROMA);
-	writel(ve_virt2phys(ref_pic->extra_buffer), c->regs + VE_AVC_REC_SLUMA);
+	struct h264enc_ref_pic *ref_pic = &context->ref_picture[context->current_frame_num % 2];
+	writel(ve_virt2phys(ref_pic->luma_buffer), context->regs + VE_AVC_REC_LUMA);
+	writel(ve_virt2phys(ref_pic->chroma_buffer), context->regs + VE_AVC_REC_CHROMA);
+	writel(ve_virt2phys(ref_pic->extra_buffer), context->regs + VE_AVC_REC_SLUMA);
 
 	/* set reference buffers */
-	if (c->current_slice_type != SLICE_I) {
-		ref_pic = &c->ref_picture[(c->current_frame_num + 1) % 2];
-		writel(ve_virt2phys(ref_pic->luma_buffer), c->regs + VE_AVC_REF_LUMA);
-		writel(ve_virt2phys(ref_pic->chroma_buffer), c->regs + VE_AVC_REF_CHROMA);
-		writel(ve_virt2phys(ref_pic->extra_buffer), c->regs + VE_AVC_REF_SLUMA);
+	if (context->current_slice_type != SLICE_I) {
+		ref_pic = &context->ref_picture[(context->current_frame_num + 1) % 2];
+		writel(ve_virt2phys(ref_pic->luma_buffer), context->regs + VE_AVC_REF_LUMA);
+		writel(ve_virt2phys(ref_pic->chroma_buffer), context->regs + VE_AVC_REF_CHROMA);
+		writel(ve_virt2phys(ref_pic->extra_buffer), context->regs + VE_AVC_REF_SLUMA);
 	}
 
 	/* set unknown purpose buffers */
-	writel(ve_virt2phys(c->extra_buffer_line), c->regs + VE_AVC_MB_INFO);
-	writel(ve_virt2phys(c->extra_buffer_frame), c->regs + VE_AVC_UNK_BUF);
+	writel(ve_virt2phys(context->extra_buffer_line), context->regs + VE_AVC_MB_INFO);
+	writel(ve_virt2phys(context->extra_buffer_frame), context->regs + VE_AVC_UNK_BUF);
 
 	/* enable interrupt and clear status flags */
-	writel(readl(c->regs + VE_AVC_CTRL) | 0xf, c->regs + VE_AVC_CTRL);
-	writel(readl(c->regs + VE_AVC_STATUS) | 0x7, c->regs + VE_AVC_STATUS);
+	writel(readl(context->regs + VE_AVC_CTRL) | 0xf, context->regs + VE_AVC_CTRL);
+	writel(readl(context->regs + VE_AVC_STATUS) | 0x7, context->regs + VE_AVC_STATUS);
 
 	/* set encoding parameters */
 	uint32_t params = 0x0;
-	if (c->entropy_coding_mode_flag)
+	if (context->entropy_coding_mode_flag)
 		params |= 0x100;
-	if (c->current_slice_type == SLICE_P)
+	if (context->current_slice_type == SLICE_P)
 		params |= 0x10;
-	writel(params, c->regs + VE_AVC_PARAM);
-	writel((4 << 16) | (c->pic_init_qp << 8) | c->pic_init_qp, c->regs + VE_AVC_QP);
-	writel(0x00000104, c->regs + VE_AVC_MOTION_EST);
+	writel(params, context->regs + VE_AVC_PARAM);
+	writel((4 << 16) | (context->pic_init_qp << 8) | context->pic_init_qp, context->regs + VE_AVC_QP);
+	writel(0x00000104, context->regs + VE_AVC_MOTION_EST);
 
 	/* trigger encoding */
-	writel(0x8, c->regs + VE_AVC_TRIGGER);
+	writel(0x8, context->regs + VE_AVC_TRIGGER);
 	ve_wait(1);
 
 	/* check result */
-	uint32_t status = readl(c->regs + VE_AVC_STATUS);
-	writel(status, c->regs + VE_AVC_STATUS);
+	uint32_t status = readl(context->regs + VE_AVC_STATUS);
+	writel(status, context->regs + VE_AVC_STATUS);
 
 	/* save bytestream length */
-	c->bytestream_length = readl(c->regs + VE_AVC_VLE_LENGTH) / 8;
+	context->bytestream_length = readl(context->regs + VE_AVC_VLE_LENGTH) / 8;
 
 	printf("\rFrame %5d, size 0x%04X, status 0x%08X",
-	       c->frame_count, c->bytestream_length, status);
+	       context->frame_count, context->bytestream_length, status);
 
 	/* next frame */
-	c->current_frame_num++;
-	if (c->current_frame_num >= c->keyframe_interval)
-		c->current_frame_num = 0;
-	c->frame_count++;
+	context->current_frame_num++;
+	if (context->current_frame_num >= context->keyframe_interval)
+		context->current_frame_num = 0;
+	context->frame_count++;
 
 	ve_put();
 
