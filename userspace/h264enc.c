@@ -100,8 +100,8 @@ static void __maybe_unused cedar_io_mask(struct h264enc_context *context,
 
 static void put_bits(struct h264enc_context *context, uint32_t x, int num)
 {
-	h264enc_write(VE_AVC_BASIC_BITS, x);
-	h264enc_write(VE_AVC_TRIGGER, 0x1 | ((num & 0x1f) << 8));
+	h264enc_write(H264ENC_PUTBITSDATA, x);
+	h264enc_write(H264ENC_STARTTRIG, 0x1 | ((num & 0x1f) << 8));
 	/* again the problem, how to check for finish? */
 }
 
@@ -121,20 +121,20 @@ static void put_se(struct h264enc_context *context, int x)
 static void put_start_code(struct h264enc_context *context,
 			   unsigned int nal_ref_idc, unsigned int nal_unit_type)
 {
-	uint32_t tmp = h264enc_read(VE_AVC_PARAM);
+	uint32_t tmp = h264enc_read(H264ENC_PARA0);
 
 	/* disable emulation_prevention_three_byte */
-	h264enc_write(VE_AVC_PARAM, tmp | (0x1 << 31));
+	h264enc_write(H264ENC_PARA0, tmp | (0x1 << 31));
 
 	put_bits(context, 0, 24);
 	put_bits(context, 0x100 | (nal_ref_idc << 5) | (nal_unit_type << 0), 16);
 
-	h264enc_write(VE_AVC_PARAM, tmp);
+	h264enc_write(H264ENC_PARA0, tmp);
 }
 
 static void put_rbsp_trailing_bits(struct h264enc_context *context)
 {
-	unsigned int cur_bs_len = h264enc_read(VE_AVC_VLE_LENGTH);
+	unsigned int cur_bs_len = h264enc_read(H264ENC_STMLEN);
 
 	int num_zero_bits = 8 - ((cur_bs_len + 1) & 0x7);
 	put_bits(context, 1 << num_zero_bits, num_zero_bits + 1);
@@ -408,11 +408,11 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	context->regs = ve_get(VE_ENGINE_AVC, 0);
 
 	/* set output buffer */
-	h264enc_write(VE_AVC_VLE_OFFSET, 0);
-	h264enc_write(VE_AVC_VLE_ADDR, ve_virt2phys(context->bytestream_buffer));
-	h264enc_write(VE_AVC_VLE_END, ve_virt2phys(context->bytestream_buffer) +
+	h264enc_write(H264ENC_STMOST, 0);
+	h264enc_write(H264ENC_STMSTARTADDR, ve_virt2phys(context->bytestream_buffer));
+	h264enc_write(H264ENC_STMENDADDR, ve_virt2phys(context->bytestream_buffer) +
 		      context->bytestream_buffer_size - 1);
-	h264enc_write(VE_AVC_VLE_MAX, context->bytestream_buffer_size * 8);
+	h264enc_write(H264ENC_STMVSIZE, context->bytestream_buffer_size * 8);
 
 	/* write headers */
 	if (context->write_sps_pps) {
@@ -435,25 +435,25 @@ int h264enc_encode_picture(struct h264enc_context *context)
 
 	/* set reconstruction buffers */
 	struct h264enc_ref_pic *ref_pic = &context->ref_picture[context->current_frame_num % 2];
-	h264enc_write(VE_AVC_REC_LUMA, ve_virt2phys(ref_pic->luma_buffer));
-	h264enc_write(VE_AVC_REC_CHROMA, ve_virt2phys(ref_pic->chroma_buffer));
-	h264enc_write(VE_AVC_REC_SLUMA, ve_virt2phys(ref_pic->extra_buffer));
+	h264enc_write(H264ENC_RECADDRY, ve_virt2phys(ref_pic->luma_buffer));
+	h264enc_write(H264ENC_RECADDRC, ve_virt2phys(ref_pic->chroma_buffer));
+	h264enc_write(H264ENC_SUBPIXADDRNEW, ve_virt2phys(ref_pic->extra_buffer));
 
 	/* set reference buffers */
 	if (context->current_slice_type != SLICE_I) {
 		ref_pic = &context->ref_picture[(context->current_frame_num + 1) % 2];
-		h264enc_write(VE_AVC_REF_LUMA, ve_virt2phys(ref_pic->luma_buffer));
-		h264enc_write(VE_AVC_REF_CHROMA, ve_virt2phys(ref_pic->chroma_buffer));
-		h264enc_write(VE_AVC_REF_SLUMA, ve_virt2phys(ref_pic->extra_buffer));
+		h264enc_write(H264ENC_REFADDRY, ve_virt2phys(ref_pic->luma_buffer));
+		h264enc_write(H264ENC_REFADDRC, ve_virt2phys(ref_pic->chroma_buffer));
+		h264enc_write(H264ENC_SUBPIXADDRLAST, ve_virt2phys(ref_pic->extra_buffer));
 	}
 
 	/* set unknown purpose buffers */
-	h264enc_write(VE_AVC_MB_INFO, ve_virt2phys(context->extra_buffer_line));
-	h264enc_write(VE_AVC_UNK_BUF, ve_virt2phys(context->extra_buffer_frame));
+	h264enc_write(H264ENC_MBINFO, ve_virt2phys(context->extra_buffer_line));
+	h264enc_write(H264ENC_MVBUFADDR, ve_virt2phys(context->extra_buffer_frame));
 
 	/* enable interrupt and clear status flags */
-	h264enc_mask(VE_AVC_CTRL, 0x0F, 0x0F);
-	h264enc_mask(VE_AVC_STATUS, 0x07, 0x07);
+	h264enc_mask(H264ENC_INT_ENABLE, 0x0F, 0x0F);
+	h264enc_mask(H264ENC_STATUS, 0x07, 0x07);
 
 	/* set encoding parameters */
 	uint32_t params = 0x0;
@@ -461,21 +461,21 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		params |= 0x100;
 	if (context->current_slice_type == SLICE_P)
 		params |= 0x10;
-	h264enc_write(VE_AVC_PARAM, params);
-	h264enc_write(VE_AVC_QP, (4 << 16) | (context->pic_init_qp << 8) | context->pic_init_qp);
+	h264enc_write(H264ENC_PARA0, params);
+	h264enc_write(H264ENC_PARA1, (4 << 16) | (context->pic_init_qp << 8) | context->pic_init_qp);
 
-	h264enc_write(VE_AVC_MOTION_EST, 0x00000104);
+	h264enc_write(H264ENC_MEPARA, 0x00000104);
 
 	/* trigger encoding */
-	h264enc_write(VE_AVC_TRIGGER, 0x08);
+	h264enc_write(H264ENC_STARTTRIG, 0x08);
 	ve_wait(1);
 
 	/* check result */
-	uint32_t status = h264enc_read(VE_AVC_STATUS);
-	h264enc_write(VE_AVC_STATUS, status);
+	uint32_t status = h264enc_read(H264ENC_STATUS);
+	h264enc_write(H264ENC_STATUS, status);
 
 	/* save bytestream length */
-	context->bytestream_length = h264enc_read(VE_AVC_VLE_LENGTH) / 8;
+	context->bytestream_length = h264enc_read(H264ENC_STMLEN) / 8;
 
 	printf("\rFrame %5d", context->frame_count);
 

@@ -104,25 +104,25 @@ static inline uint32_t readl(void *addr)
 #define VE_ISP_INPUT_LUMA		0xa78
 #define VE_ISP_INPUT_CHROMA		0xa7c
 
-#define VE_AVC_PARAM			0xb04
-#define VE_AVC_QP			0xb08
-#define VE_AVC_MOTION_EST		0xb10
-#define VE_AVC_CTRL			0xb14
-#define VE_AVC_TRIGGER			0xb18
-#define VE_AVC_STATUS			0xb1c
-#define VE_AVC_BASIC_BITS		0xb20
-#define VE_AVC_UNK_BUF			0xb60
-#define VE_AVC_VLE_ADDR			0xb80
-#define VE_AVC_VLE_END			0xb84
-#define VE_AVC_VLE_OFFSET		0xb88
-#define VE_AVC_VLE_MAX			0xb8c
-#define VE_AVC_VLE_LENGTH		0xb90
-#define VE_AVC_REF_LUMA			0xba0
-#define VE_AVC_REF_CHROMA		0xba4
-#define VE_AVC_REC_LUMA			0xbb0
-#define VE_AVC_REC_CHROMA		0xbb4
-#define VE_AVC_REF_SLUMA		0xbb8
-#define VE_AVC_REC_SLUMA		0xbbc
-#define VE_AVC_MB_INFO			0xbc0
+#define H264ENC_PARA0			0xb04
+#define H264ENC_PARA1			0xb08
+#define H264ENC_MEPARA			0xb10
+#define H264ENC_INT_ENABLE		0xb14
+#define H264ENC_STARTTRIG		0xb18
+#define H264ENC_STATUS			0xb1c
+#define H264ENC_PUTBITSDATA		0xb20
+#define H264ENC_MVBUFADDR		0xb60
+#define H264ENC_STMSTARTADDR		0xb80
+#define H264ENC_STMENDADDR		0xb84
+#define H264ENC_STMOST			0xb88
+#define H264ENC_STMVSIZE		0xb8c
+#define H264ENC_STMLEN			0xb90
+#define H264ENC_REFADDRY		0xba0
+#define H264ENC_REFADDRC		0xba4
+#define H264ENC_RECADDRY		0xbb0
+#define H264ENC_RECADDRC		0xbb4
+#define H264ENC_SUBPIXADDRLAST		0xbb8
+#define H264ENC_SUBPIXADDRNEW		0xbbc
+#define H264ENC_MBINFO			0xbc0
 
 #endif
