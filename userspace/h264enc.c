@@ -91,12 +91,20 @@ static void __maybe_unused cedar_io_mask(struct h264enc_context *context,
 	writel(value | temp, context->regs + address);
 }
 
+
+#define h264isp_read(a) \
+	cedar_io_read(context, H264ISP_BASE + (a))
+#define h264isp_write(a, v) \
+	cedar_io_write(context, H264ISP_BASE + (a), (v))
+#define h264isp_mask(a, v, m) \
+	cedar_io_mask(context, H264ISP_BASE + (a), (v), (m))
+
 #define h264enc_read(a) \
-	cedar_io_read(context, (a))
+	cedar_io_read(context, H264ENC_BASE + (a))
 #define h264enc_write(a, v) \
-	cedar_io_write(context, (a), (v))
+	cedar_io_write(context, H264ENC_BASE + (a), (v))
 #define h264enc_mask(a, v, m) \
-	cedar_io_mask(context, (a), (v), (m))
+	cedar_io_mask(context, H264ENC_BASE + (a), (v), (m))
 
 static void put_bits(struct h264enc_context *context, uint32_t x, int num)
 {
@@ -423,15 +431,15 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	put_slice_header(context);
 
 	/* set input size */
-	h264enc_write(VE_ISP_INPUT_STRIDE, context->mb_stride << 16);
-	h264enc_write(VE_ISP_INPUT_SIZE, (context->mb_width << 16) | (context->mb_height << 0));
+	h264isp_write(H264ISP_STRIDE_CTRL, context->mb_stride << 16);
+	h264isp_write(H264ISP_INPUT_SIZE, (context->mb_width << 16) | (context->mb_height << 0));
 
 	/* set input format */
-	h264enc_write(VE_ISP_CTRL, context->input_color_format << 29);
+	h264isp_write(H264ISP_CTRL, context->input_color_format << 29);
 
 	/* set input buffer */
-	h264enc_write(VE_ISP_INPUT_LUMA, ve_virt2phys(context->luma_buffer));
-	h264enc_write(VE_ISP_INPUT_CHROMA, ve_virt2phys(context->chroma_buffer));
+	h264isp_write(H264ISP_INPUT_Y_ADDR, ve_virt2phys(context->luma_buffer));
+	h264isp_write(H264ISP_INPUT_C0_ADDR, ve_virt2phys(context->chroma_buffer));
 
 	/* set reconstruction buffers */
 	struct h264enc_ref_pic *ref_pic = &context->ref_picture[context->current_frame_num % 2];
