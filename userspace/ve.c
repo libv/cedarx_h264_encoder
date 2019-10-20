@@ -36,6 +36,7 @@
 enum IOCTL_CMD {
 	IOCTL_GET_ENV_INFO = 0x101,
 	IOCTL_WAIT_VE_EN = 0x103,
+	IOCTL_ENCODE = 0x600,
 };
 
 struct cedarv_env_infomation {
@@ -142,6 +143,18 @@ ve_wait(int timeout)
 	}
 
 	return 0;
+}
+
+int
+ve_encode(void)
+{
+	int ret;
+
+	ret = ioctl(ve.fd, IOCTL_ENCODE, NULL);
+	if (ret < 0)
+		fprintf(stderr, "%s(): IOCTL_ENCODE failed: %s\n",
+			__func__, strerror(errno));
+	return ret;
 }
 
 void *

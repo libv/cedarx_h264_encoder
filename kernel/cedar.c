@@ -60,6 +60,7 @@ struct sunxi_cedar {
 
 	bool interrupt_received;
 	wait_queue_head_t wait_queue;
+	uint32_t int_status;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -90,6 +91,8 @@ static void __maybe_unused cedar_io_mask(struct sunxi_cedar *cedar,
 
 #define cedarenc_read(a) \
 	cedar_io_read(cedar, CEDAR_H264ENC_BASE + (a))
+#define cedarenc_write(a, v) \
+	cedar_io_write(cedar, CEDAR_H264ENC_BASE + (a), (v))
 #define cedarenc_mask(a, v, m) \
 	cedar_io_mask(cedar, CEDAR_H264ENC_BASE + (a), (v), (m))
 
@@ -98,8 +101,6 @@ static irqreturn_t cedar_isr(int irq, void *dev_id)
 	struct sunxi_cedar *cedar = (struct sunxi_cedar *) dev_id;
 	uint32_t enable, status;
 
-	pr_info("cedar_isr()\n");
-
 	enable = cedarenc_read(CEDAR_H264ENC_INT_ENABLE);
 	enable &= 0x07;
 
@@ -107,9 +108,14 @@ static irqreturn_t cedar_isr(int irq, void *dev_id)
 	status &= 0x0F;
 
 	if ((enable != 0) && (status != 0)) {
+		cedar->int_status = cedarenc_read(CEDAR_H264ENC_INT_STATUS);
+
+		/* clear interrupts */
+		cedarenc_write(CEDAR_H264ENC_INT_STATUS, cedar->int_status);
+
 		/*
 		 * Disable interrupt
-		 * Will be re-enabled by userspace.
+		 * Will be re-enabled by userspace, for now.
 		 */
 		cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0, 0x07);
 
@@ -370,6 +376,37 @@ cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
 }
 
 static long
+cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
+{
+	/* enable interrupt and clear status flags */
+	cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0x0F, 0x0F);
+	cedarenc_mask(CEDAR_H264ENC_INT_STATUS, 0x07, 0x07);
+
+	cedar->interrupt_received = false;
+
+	/* trigger encoding */
+	cedarenc_write(CEDAR_H264ENC_STARTTRIG, 0x08);
+
+	wait_event_interruptible_timeout(cedar->wait_queue,
+					 cedar->interrupt_received,
+					 1 * HZ);
+
+	if (!cedar->interrupt_received) {
+		dev_err(cedar->dev, "%s(): encoding timed out.\n", __func__);
+		return -1;
+	}
+
+	if ((cedar->int_status & 0x03) != 0x01) {
+		dev_err(cedar->dev, "%s(): encoding failed: 0x%08X\n",
+			__func__, cedar->int_status);
+		return -1;
+	}
+
+	/* size of encoded stream, in bytes. */
+	return cedarenc_read(CEDAR_H264ENC_STMLEN) / 8; /* align? */
+}
+
+static long
 cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct sunxi_cedar *cedar = filp->private_data;
@@ -417,6 +454,8 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IOCTL_FLUSH_CACHE:
 		/* silently ignore. */
 		return 0;
+	case IOCTL_ENCODE:
+		return cedar_slashdev_ioctl_encode(cedar, to);
 	default:
 		dev_err(cedar->dev, "%s(0x%04X, 0x%lX): unhandled ioctl.\n",
 			__func__, cmd, arg);

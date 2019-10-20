@@ -459,10 +459,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	h264enc_write(H264ENC_MBINFO, ve_virt2phys(context->extra_buffer_line));
 	h264enc_write(H264ENC_MVBUFADDR, ve_virt2phys(context->extra_buffer_frame));
 
-	/* enable interrupt and clear status flags */
-	h264enc_mask(H264ENC_INT_ENABLE, 0x0F, 0x0F);
-	h264enc_mask(H264ENC_STATUS, 0x07, 0x07);
-
 	/* set encoding parameters */
 	uint32_t params = 0x0;
 	if (context->entropy_coding_mode_flag)
@@ -474,18 +470,11 @@ int h264enc_encode_picture(struct h264enc_context *context)
 
 	h264enc_write(H264ENC_MEPARA, 0x00000104);
 
-	/* trigger encoding */
-	h264enc_write(H264ENC_STARTTRIG, 0x08);
-	ve_wait(1);
+	int ret = ve_encode();
+	if (ret >= 0)
+		context->bytestream_length = ret;
 
-	/* check result */
-	uint32_t status = h264enc_read(H264ENC_STATUS);
-	h264enc_write(H264ENC_STATUS, status);
-
-	/* save bytestream length */
-	context->bytestream_length = h264enc_read(H264ENC_STMLEN) / 8;
-
-	printf("\rFrame %5d", context->frame_count);
+	printf("\rFrame %5d: %dbytes", context->frame_count, context->bytestream_length);
 
 	/* next frame */
 	context->current_frame_num++;
@@ -495,10 +484,9 @@ int h264enc_encode_picture(struct h264enc_context *context)
 
 	ve_put();
 
-	if ((status & 0x3) != 0x1) {
-		fprintf(stderr, "%s(): decoding failed: status 0x%02X\n",
-			__func__, status);
-		return -1;
+	if (ret < 0) {
+		fprintf(stderr, "%s(): decoding failed: %d\n", __func__, ret);
+		return ret;
 	}
 
 	return 0;

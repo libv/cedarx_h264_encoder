@@ -31,6 +31,8 @@ enum IOCTL_CMD {
 	IOCTL_SET_VOL = 0x400,
 
 	IOCTL_WAIT_JPEG_DEC = 0x500,
+
+	IOCTL_ENCODE = 0x600,
 };
 
 struct cedarv_env_infomation {
