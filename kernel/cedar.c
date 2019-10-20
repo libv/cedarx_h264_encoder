@@ -30,6 +30,7 @@
 #include <linux/interrupt.h>
 
 #include "cedar_ve.h"
+#include "cedar_regs.h"
 
 #define MODULE_NAME "sunxi_cedar"
 
@@ -56,16 +57,65 @@ struct sunxi_cedar {
 	dma_addr_t mem_address;
 	size_t mem_size;
 	void *mem_virtual;
+
+	bool interrupt_received;
+	wait_queue_head_t wait_queue;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
 
-#define CEDAR_MMAP_MAGIC_MEMORY 0x434DF000 /* 'C' 'M' 0xF000 */
-#define CEDAR_MMAP_MAGIC_REGISTERS 0x4352F000 /* 'C''R' 0xF000 */
+static void __maybe_unused cedar_io_write(struct sunxi_cedar *cedar,
+					  int address, uint32_t value)
+{
+	writel(value, cedar->mmio + address);
+}
+
+static uint32_t __maybe_unused cedar_io_read(struct sunxi_cedar *cedar,
+					     int address)
+{
+	return readl(cedar->mmio + address);
+}
+
+static void __maybe_unused cedar_io_mask(struct sunxi_cedar *cedar,
+					 int address,
+					 uint32_t value, uint32_t mask)
+{
+	uint32_t temp = readl(cedar->mmio + address);
+
+	temp &= ~mask;
+	value &= mask;
+
+	writel(value | temp, cedar->mmio + address);
+}
+
+#define cedarenc_read(a) \
+	cedar_io_read(cedar, CEDAR_H264ENC_BASE + (a))
+#define cedarenc_mask(a, v, m) \
+	cedar_io_mask(cedar, CEDAR_H264ENC_BASE + (a), (v), (m))
 
 static irqreturn_t cedar_isr(int irq, void *dev_id)
 {
 	struct sunxi_cedar *cedar = (struct sunxi_cedar *) dev_id;
+	uint32_t enable, status;
+
+	pr_info("cedar_isr()\n");
+
+	enable = cedarenc_read(CEDAR_H264ENC_INT_ENABLE);
+	enable &= 0x07;
+
+	status = cedarenc_read(CEDAR_H264ENC_INT_STATUS);
+	status &= 0x0F;
+
+	if ((enable != 0) && (status != 0)) {
+		/*
+		 * Disable interrupt
+		 * Will be re-enabled by userspace.
+		 */
+		cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0, 0x07);
+
+		cedar->interrupt_received = true;
+		wake_up_interruptible(&cedar->wait_queue);
+	}
 
 	return IRQ_HANDLED;
 }
@@ -334,6 +384,12 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EINVAL;
 
 		return cedar_slashdev_ioctl_get_env_info(cedar, to);
+	case IOCTL_WAIT_VE_EN:
+		cedar->interrupt_received = false;
+		wait_event_interruptible_timeout(cedar->wait_queue,
+						 cedar->interrupt_received,
+						 1 * HZ);
+		return 0;
 	case IOCTL_RESET_VE:
 		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
 			 "RESET_VE", arg);
@@ -534,6 +590,7 @@ static int cedar_probe(struct platform_device *platform_dev)
 	if (!cedar)
 		return -ENOMEM;
 	cedar->dev = dev;
+	init_waitqueue_head(&cedar->wait_queue);
 
 	ret = cedar_resources_get(cedar, platform_dev);
 	if (ret)
