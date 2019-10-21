@@ -29,7 +29,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 
-#include "cedar_ve.h"
+#include "cedar_ioctl.h"
 #include "cedar_regs.h"
 
 #define MODULE_NAME "sunxi_cedar"
@@ -437,9 +437,9 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	void __user *to = (void *) arg;
 
 	switch (cmd) {
-	case IOCTL_GET_ENV_INFO:
+	case CEDAR_IOCTL_GET_ENV_INFO:
 		return cedar_slashdev_ioctl_get_env_info(cedar, to);
-	case IOCTL_ENCODE:
+	case CEDAR_IOCTL_ENCODE:
 		return cedar_slashdev_ioctl_encode(cedar, to);
 	default:
 		dev_err(cedar->dev, "%s(0x%04X, 0x%lX): unhandled ioctl.\n",

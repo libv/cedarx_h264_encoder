@@ -29,21 +29,10 @@
 #include <sys/mman.h>
 
 #include "ve.h"
+#include "cedar_ioctl.h"
 #include "ve_regs.h"
 
 #define DEVICE "/dev/cedar_dev"
-
-enum IOCTL_CMD {
-	IOCTL_GET_ENV_INFO = 0x101,
-	IOCTL_WAIT_VE_EN = 0x103,
-	IOCTL_ENCODE = 0x600,
-};
-
-struct cedarv_env_infomation {
-	unsigned int phymem_start;
-	int phymem_total_size;
-	unsigned int address_macc;
-};
 
 #define PAGE_OFFSET (0xc0000000) // from kernel
 #define PAGE_SIZE (4096)
@@ -82,9 +71,9 @@ int ve_open(void)
 		return 0;
 	}
 
-	ret = ioctl(ve.fd, IOCTL_GET_ENV_INFO, (void *)(&info));
+	ret = ioctl(ve.fd, CEDAR_IOCTL_GET_ENV_INFO, (void *)(&info));
 	if (ret == -1) {
-		fprintf(stderr, "%s(): IOCTL_GET_ENV_INFO failed: %s\n",
+		fprintf(stderr, "%s(): CEDAR_IOCTL_GET_ENV_INFO failed: %s\n",
 			__func__, strerror(errno));
 		goto error;
 	}
@@ -131,28 +120,13 @@ ve_get_version(void)
 }
 
 int
-ve_wait(int timeout)
-{
-	int ret;
-
-	ret = ioctl(ve.fd, IOCTL_WAIT_VE_EN, timeout);
-	if (ret) {
-		fprintf(stderr, "%s(): IOCTL_WAIT_VE failed: %s\n",
-			__func__, strerror(errno));
-		return ret;
-	}
-
-	return 0;
-}
-
-int
 ve_encode(void)
 {
 	int ret;
 
-	ret = ioctl(ve.fd, IOCTL_ENCODE, NULL);
+	ret = ioctl(ve.fd, CEDAR_IOCTL_ENCODE, NULL);
 	if (ret < 0)
-		fprintf(stderr, "%s(): IOCTL_ENCODE failed: %s\n",
+		fprintf(stderr, "%s(): CEDAR_IOCTL_ENCODE failed: %s\n",
 			__func__, strerror(errno));
 	return ret;
 }
