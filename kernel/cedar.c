@@ -61,6 +61,9 @@ struct sunxi_cedar {
 	bool interrupt_received;
 	wait_queue_head_t wait_queue;
 	uint32_t int_status;
+
+	uint64_t time_open;
+	uint64_t time_waiting;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -344,16 +347,26 @@ cedar_slashdev_open(struct inode *inode, struct file *filp)
 
 	filp->private_data = cedar;
 
+	cedar->time_open = ktime_get_raw_fast_ns();
+	cedar->time_waiting = 0;
+
 	return 0;
 }
 
 static int
 cedar_slashdev_release(struct inode *inode, struct file *filp)
 {
+	uint64_t now, total;
 	struct sunxi_cedar *cedar =
 		container_of(inode->i_cdev, struct sunxi_cedar, cdev);
 
 	dev_info(cedar->dev, "%s();\n", __func__);
+
+	now = ktime_get_raw_fast_ns();
+	total = now - cedar->time_open;
+
+	dev_info(cedar->dev, "Time spent: %llu/%lluns\n",
+		 cedar->time_waiting, total);
 
 	filp->private_data = cedar;
 
@@ -378,6 +391,10 @@ cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
 static long
 cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
 {
+	uint64_t start, stop;
+
+	start = ktime_get_raw_fast_ns();
+
 	/* enable interrupt and clear status flags */
 	cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0x0F, 0x0F);
 	cedarenc_mask(CEDAR_H264ENC_INT_STATUS, 0x07, 0x07);
@@ -401,6 +418,10 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
 			__func__, cedar->int_status);
 		return -1;
 	}
+
+	stop = ktime_get_raw_fast_ns();
+
+	cedar->time_waiting += stop - start;
 
 	/* size of encoded stream, in bytes. */
 	return cedarenc_read(CEDAR_H264ENC_STMLEN) / 8; /* align? */
