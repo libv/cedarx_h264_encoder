@@ -33,6 +33,7 @@ enum IOCTL_CMD {
 	IOCTL_WAIT_JPEG_DEC = 0x500,
 
 	IOCTL_ENCODE = 0x600,
+	IOCTL_CONFIG = 0x601,
 };
 
 struct cedarv_env_infomation {
