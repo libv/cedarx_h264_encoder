@@ -193,7 +193,7 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 		goto err_sram;
 	}
 
-	cedar->mem_size = 64 << 20;
+	cedar->mem_size = 16 << 20;
 	cedar->mem_virtual =
 		dma_alloc_coherent(cedar->dev, cedar->mem_size,
 				   &cedar->mem_address, GFP_KERNEL);
