@@ -442,39 +442,6 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EINVAL;
 
 		return cedar_slashdev_ioctl_get_env_info(cedar, to);
-	case IOCTL_WAIT_VE_EN:
-		cedar->interrupt_received = false;
-		wait_event_interruptible_timeout(cedar->wait_queue,
-						 cedar->interrupt_received,
-						 1 * HZ);
-		return 0;
-	case IOCTL_RESET_VE:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "RESET_VE", arg);
-		return 0;
-	case IOCTL_ENGINE_REQ:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "ENGINE_REQ", arg);
-		return 0;
-	case IOCTL_ENGINE_REL:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "ENGINE_REL", arg);
-		return 0;
-	case IOCTL_SET_REFCOUNT:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "SET_REFCOUNT", arg);
-		return 0;
-	case IOCTL_SET_VE_FREQ:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "SET_VE_FREQ", arg);
-		return 0;
-	case IOCTL_ENABLE_VE:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "ENABLE_VE", arg);
-		return 0;
-	case IOCTL_FLUSH_CACHE:
-		/* silently ignore. */
-		return 0;
 	case IOCTL_ENCODE:
 		return cedar_slashdev_ioctl_encode(cedar, to);
 	default:
