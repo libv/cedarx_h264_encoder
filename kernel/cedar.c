@@ -382,6 +382,9 @@ cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
 		.address_macc = cedar->mmio_resource->start,
 	};
 
+	if (!to)
+		return -EINVAL;
+
 	if (copy_to_user(to, &info, sizeof(struct cedarv_env_infomation)))
 		return -EFAULT;
 
@@ -435,12 +438,6 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case IOCTL_GET_ENV_INFO:
-		dev_info(cedar->dev, "%s(%s, 0x%lX);\n", __func__,
-			 "GET_ENV_INFO", arg);
-
-		if (!arg)
-			return -EINVAL;
-
 		return cedar_slashdev_ioctl_get_env_info(cedar, to);
 	case IOCTL_ENCODE:
 		return cedar_slashdev_ioctl_encode(cedar, to);
