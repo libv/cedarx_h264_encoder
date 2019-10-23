@@ -80,6 +80,11 @@ struct sunxi_cedar {
 	int frame_count;
 
 	int entropy_coding_mode;
+
+	/* MB info buffer */
+	void *mb_info_virtual;
+	dma_addr_t mb_info_dma_addr;
+	size_t mb_info_size;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -403,6 +408,15 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 
 	cedar_h264enc_disable(cedar);
 
+	/* cleanup */
+	if (cedar->mb_info_virtual)
+		dma_free_coherent(cedar->dev, cedar->mb_info_size,
+				  cedar->mb_info_virtual,
+				  cedar->mb_info_dma_addr);
+	cedar->mb_info_size = 0;
+	cedar->mb_info_virtual = NULL;
+	cedar->mb_info_dma_addr = 0;
+
 	cedar->configured = false;
 
 	filp->private_data = cedar;
@@ -439,6 +453,11 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 	if (copy_from_user(&config, from, sizeof(struct cedar_ioctl_config)))
 		return -EFAULT;
 
+	if (cedar->configured) {
+		dev_err(cedar->dev, "%s(): Already configured.\n", __func__);
+		return -EINVAL;
+	}
+
 	cedar->src_width = config.src_width;
 	cedar->src_height = config.src_height;
 	cedar->src_format = config.src_format;
@@ -454,9 +473,29 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	cedar->entropy_coding_mode = config.entropy_coding_mode;
 
+	cedar->mb_info_size = ALIGN(cedar->dst_width, 16) * 8;
+	cedar->mb_info_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->mb_info_size,
+				   &cedar->mb_info_dma_addr, GFP_KERNEL);
+	if (!cedar->mb_info_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate mb_info.\n",
+			__func__);
+		goto error;
+	}
+
 	cedar->configured = true;
 
 	return 0;
+ error:
+	if (cedar->mb_info_virtual)
+		dma_free_coherent(cedar->dev, cedar->mb_info_size,
+				  cedar->mb_info_virtual,
+				  cedar->mb_info_dma_addr);
+	cedar->mb_info_size = 0;
+	cedar->mb_info_virtual = NULL;
+	cedar->mb_info_dma_addr = 0;
+
+	return -ENOMEM;
 }
 
 static long
@@ -478,6 +517,8 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	}
 
 	start = ktime_get_raw_fast_ns();
+
+	cedarenc_write(CEDAR_H264ENC_MBINFO, cedar->mb_info_dma_addr);
 
 	if (cedar->entropy_coding_mode)
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0x100, 0x100);

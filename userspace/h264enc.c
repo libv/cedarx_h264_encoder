@@ -56,8 +56,6 @@ struct h264enc_context {
 		uint32_t extra_buffer_phys;
 	} ref_picture[2];
 
-	void *MB_info;
-	uint32_t MB_info_phys;
 	void *extra_buffer_frame; /* unknown purpose */
 	uint32_t extra_buffer_frame_phys;
 
@@ -266,7 +264,6 @@ void h264enc_free(struct h264enc_context *context)
 {
 	int i;
 
-	ve_free(context->MB_info);
 	ve_free(context->extra_buffer_frame);
 
 	for (i = 0; i < 2; i++) {
@@ -398,19 +395,9 @@ h264enc_new(struct h264enc_params *params)
 	}
 	context->extra_buffer_frame_phys = ve_virt2phys(context->extra_buffer_frame);
 
-	int size = (context->mb_width << 4) * 8;
-	context->MB_info = ve_malloc(size);
-	if (!context->MB_info) {
-		fprintf(stderr, "%s(): failed to allocate extra buffer line.\n",
-			__func__);
-		goto error;
-	}
-	context->MB_info_phys = ve_virt2phys(context->MB_info);
-
 	return context;
 
  error:
-	ve_free(context->MB_info);
 	ve_free(context->extra_buffer_frame);
 	ve_free(context->ref_picture[1].luma_buffer);
 	ve_free(context->ref_picture[1].extra_buffer);
@@ -484,7 +471,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	}
 
 	/* set unknown purpose buffers */
-	h264enc_write(H264ENC_MBINFO, context->MB_info_phys);
 	h264enc_write(H264ENC_MVBUFADDR, context->extra_buffer_frame_phys);
 
 	if (context->current_slice_type == SLICE_P)
