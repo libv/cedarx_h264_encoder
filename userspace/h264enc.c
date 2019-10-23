@@ -47,7 +47,8 @@ struct h264enc_context {
 		void *extra_buffer; /* unknown purpose, looks like smaller luma */
 	} ref_picture[2];
 
-	void *extra_buffer_line, *extra_buffer_frame; /* unknown purpose */
+	void *MB_info;
+	void *extra_buffer_frame; /* unknown purpose */
 
 	void *regs;
 
@@ -254,7 +255,7 @@ void h264enc_free(struct h264enc_context *context)
 {
 	int i;
 
-	ve_free(context->extra_buffer_line);
+	ve_free(context->MB_info);
 	ve_free(context->extra_buffer_frame);
 
 	for (i = 0; i < 2; i++) {
@@ -376,8 +377,10 @@ h264enc_new(struct h264enc_params *params)
 			__func__);
 		goto error;
 	}
-	context->extra_buffer_line = ve_malloc(context->mb_width * 32);
-	if (!context->extra_buffer_line) {
+
+	int size = (context->mb_width << 4) * 8;
+	context->MB_info = ve_malloc(size);
+	if (!context->MB_info) {
 		fprintf(stderr, "%s(): failed to allocate extra buffer line.\n",
 			__func__);
 		goto error;
@@ -386,7 +389,7 @@ h264enc_new(struct h264enc_params *params)
 	return context;
 
  error:
-	ve_free(context->extra_buffer_line);
+	ve_free(context->MB_info);
 	ve_free(context->extra_buffer_frame);
 	ve_free(context->ref_picture[1].luma_buffer);
 	ve_free(context->ref_picture[1].extra_buffer);
@@ -460,7 +463,7 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	}
 
 	/* set unknown purpose buffers */
-	h264enc_write(H264ENC_MBINFO, ve_virt2phys(context->extra_buffer_line));
+	h264enc_write(H264ENC_MBINFO, ve_virt2phys(context->MB_info));
 	h264enc_write(H264ENC_MVBUFADDR, ve_virt2phys(context->extra_buffer_frame));
 
 	/* set encoding parameters */
