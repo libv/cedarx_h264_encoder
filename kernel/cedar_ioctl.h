@@ -13,4 +13,24 @@ struct cedarv_env_infomation {
 	unsigned int address_macc;
 };
 
+struct cedar_ioctl_config {
+	int src_width;
+	int src_height;
+#define CEDAR_IOCTL_CONFIG_FORMAT_NV12 0
+#define CEDAR_IOCTL_CONFIG_FORMAT_NV16 1
+	int src_format;
+
+	int dst_width;
+	int dst_height;
+
+	int profile;
+	int level;
+	int qp;
+	int keyframe_interval;
+
+#define CEDAR_IOCTL_ENTROPY_CODING_CAVLC 0
+#define CEDAR_IOCTL_ENTROPY_CODING_CABAC 1
+	int entropy_coding_mode;
+};
+
 #endif /* _CEDAR_IOCTL_H_ */

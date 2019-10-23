@@ -271,7 +271,7 @@ struct h264enc_context *
 h264enc_new(struct h264enc_params *params)
 {
 	struct h264enc_context *context;
-	int i;
+	int ret, i;
 
 	/* check parameter validity */
 	if (!IS_ALIGNED(params->src_width, 16) || !IS_ALIGNED(params->src_height, 16) ||
@@ -290,6 +290,10 @@ h264enc_new(struct h264enc_params *params)
 		fprintf(stderr, "%s(): invalid color format.\n", __func__);
 		return NULL;
 	}
+
+	ret = ve_config(params);
+	if (ret)
+		return NULL;
 
 	/* allocate memory for h264enc structure */
 	context = calloc(1, sizeof(struct h264enc_context));

@@ -29,6 +29,7 @@
 #include <sys/mman.h>
 
 #include "ve.h"
+#include "h264enc.h"
 #include "cedar_ioctl.h"
 #include "ve_regs.h"
 
@@ -128,6 +129,40 @@ ve_encode(void)
 	if (ret < 0)
 		fprintf(stderr, "%s(): CEDAR_IOCTL_ENCODE failed: %s\n",
 			__func__, strerror(errno));
+	return ret;
+}
+
+int ve_config(struct h264enc_params *params)
+{
+	struct cedar_ioctl_config config = { 0 };
+	int ret;
+
+	config.src_width = params->src_width;
+	config.src_height = params->src_height;
+
+	if (params->src_format == H264_FMT_NV16)
+		config.src_format = CEDAR_IOCTL_CONFIG_FORMAT_NV16;
+	else
+		config.src_format = CEDAR_IOCTL_CONFIG_FORMAT_NV12;
+
+	config.dst_width = params->width;
+	config.dst_height = params->height;
+
+	config.profile = params->profile_idc;
+	config.level = params->level_idc;
+	config.qp = params->qp;
+	config.keyframe_interval = params->keyframe_interval;
+
+	if (params->entropy_coding_mode == H264_EC_CABAC)
+		config.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CABAC;
+	else
+		config.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CAVLC;
+
+	ret = ioctl(ve.fd, CEDAR_IOCTL_CONFIG, &config);
+	if (ret < 0)
+		fprintf(stderr, "%s(): CEDAR_IOCTL_CONFIG failed: %s\n",
+			__func__, strerror(errno));
+
 	return ret;
 }
 

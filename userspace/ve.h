@@ -32,6 +32,8 @@ void *ve_malloc(int size);
 void ve_free(void *ptr);
 uint32_t ve_virt2phys(void *ptr);
 
+struct h264enc_params;
+int ve_config(struct h264enc_params *params);
 int ve_encode(void);
 
 #endif

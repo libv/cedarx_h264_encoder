@@ -64,6 +64,21 @@ struct sunxi_cedar {
 
 	uint64_t time_open;
 	uint64_t time_waiting;
+
+	bool configured;
+	int src_width;
+	int src_height;
+	int src_format;
+
+	int dst_width;
+	int dst_height;
+
+	int profile;
+	int level;
+	int qp;
+	int keyframe_interval;
+
+	int entropy_coding_mode;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -349,6 +364,7 @@ cedar_slashdev_open(struct inode *inode, struct file *filp)
 
 	cedar->time_open = ktime_get_raw_fast_ns();
 	cedar->time_waiting = 0;
+	cedar->configured = false;
 
 	return 0;
 }
@@ -367,6 +383,8 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 
 	dev_info(cedar->dev, "Time spent: %llu/%lluns\n",
 		 cedar->time_waiting, total);
+
+	cedar->configured = false;
 
 	filp->private_data = cedar;
 
@@ -392,9 +410,45 @@ cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
 }
 
 static long
+cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
+{
+	struct cedar_ioctl_config config;
+
+	if (!from)
+		return -EINVAL;
+
+	if (copy_from_user(&config, from, sizeof(struct cedar_ioctl_config)))
+		return -EFAULT;
+
+	cedar->src_width = config.src_width;
+	cedar->src_height = config.src_height;
+	cedar->src_format = config.src_format;
+
+	cedar->dst_width = config.dst_width;
+	cedar->dst_height = config.dst_height;
+
+	cedar->profile = config.profile;
+	cedar->level = config.level;
+	cedar->qp = config.qp;
+	cedar->keyframe_interval = config.keyframe_interval;
+
+	cedar->entropy_coding_mode = config.entropy_coding_mode;
+
+	cedar->configured = true;
+
+	return 0;
+}
+
+static long
 cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
 {
 	uint64_t start, stop;
+
+	if (!cedar->configured) {
+		dev_err(cedar->dev, "%s: CEDAR_IOCTL_CONFIG not run yet.\n",
+			__func__);
+		return -EINVAL;
+	}
 
 	start = ktime_get_raw_fast_ns();
 
@@ -441,6 +495,8 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return cedar_slashdev_ioctl_get_env_info(cedar, to);
 	case CEDAR_IOCTL_ENCODE:
 		return cedar_slashdev_ioctl_encode(cedar, to);
+	case CEDAR_IOCTL_CONFIG:
+		return cedar_slashdev_ioctl_config(cedar, to);
 	default:
 		dev_err(cedar->dev, "%s(0x%04X, 0x%lX): unhandled ioctl.\n",
 			__func__, cmd, arg);
