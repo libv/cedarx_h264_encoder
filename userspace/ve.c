@@ -52,11 +52,9 @@ static struct
 	void *regs;
 	struct memchunk_t first_memchunk;
 	pthread_rwlock_t memory_lock;
-	pthread_mutex_t device_lock;
 } ve = {
 	.fd = -1,
 	.memory_lock = PTHREAD_RWLOCK_INITIALIZER,
-	.device_lock = PTHREAD_MUTEX_INITIALIZER,
 };
 
 int ve_open(void)
@@ -155,17 +153,9 @@ int ve_config(struct h264enc_params *params)
 }
 
 void *
-ve_get(int engine, uint32_t flags)
+ve_mmio_get(void)
 {
-	pthread_mutex_lock(&ve.device_lock);
-
 	return ve.regs;
-}
-
-void
-ve_put(void)
-{
-	pthread_mutex_unlock(&ve.device_lock);
 }
 
 void *

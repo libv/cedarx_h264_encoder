@@ -24,8 +24,7 @@
 
 int ve_open(void);
 void ve_close(void);
-void *ve_get(int engine, uint32_t flags);
-void ve_put(void);
+void *ve_mmio_get(void);
 
 void *ve_malloc(int size);
 void ve_free(void *ptr);

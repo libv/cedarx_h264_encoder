@@ -304,6 +304,8 @@ h264enc_new(struct h264enc_params *params)
 		return NULL;
 	}
 
+	context->regs = ve_mmio_get();
+
 	/* copy parameters */
 	context->mb_width = DIV_ROUND_UP(params->width, 16);
 	context->mb_height = DIV_ROUND_UP(params->height, 16);
@@ -420,8 +422,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 {
 	context->current_slice_type = context->current_frame_num ? SLICE_P : SLICE_I;
 
-	context->regs = ve_get(VE_ENGINE_AVC, 0);
-
 	/* set output buffer */
 	h264enc_write(H264ENC_STMOST, 0);
 	h264enc_write(H264ENC_STMSTARTADDR, ve_virt2phys(context->bytestream_buffer));
@@ -488,8 +488,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	if (context->current_frame_num >= context->keyframe_interval)
 		context->current_frame_num = 0;
 	context->frame_count++;
-
-	ve_put();
 
 	if (ret < 0) {
 		fprintf(stderr, "%s(): %d: encoding failed: %d\n",
