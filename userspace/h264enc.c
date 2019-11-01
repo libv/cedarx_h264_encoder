@@ -34,21 +34,31 @@ struct h264enc_context {
 	unsigned int mb_width, mb_height, mb_stride;
 	unsigned int crop_right, crop_bottom;
 
-	uint8_t *luma_buffer, *chroma_buffer;
+	uint8_t *luma_buffer;
+	uint32_t luma_buffer_phys;
+	uint8_t *chroma_buffer;
+	uint32_t chroma_buffer_phys;
 	unsigned int input_buffer_size;
 	enum color_format input_color_format;
 
 	uint8_t *bytestream_buffer;
+	uint32_t bytestream_buffer_phys;
 	unsigned int bytestream_buffer_size;
 	unsigned int bytestream_length;
 
 	struct h264enc_ref_pic {
-		void *luma_buffer, *chroma_buffer;
+		void *luma_buffer;
+		uint32_t luma_buffer_phys;
+		void *chroma_buffer;
+		uint32_t chroma_buffer_phys;
 		void *extra_buffer; /* unknown purpose, looks like smaller luma */
+		uint32_t extra_buffer_phys;
 	} ref_picture[2];
 
 	void *MB_info;
+	uint32_t MB_info_phys;
 	void *extra_buffer_frame; /* unknown purpose */
+	uint32_t extra_buffer_frame_phys;
 
 	void *regs;
 
@@ -341,7 +351,9 @@ h264enc_new(struct h264enc_params *params)
 			__func__);
 		goto error;
 	}
+	context->luma_buffer_phys = ve_virt2phys(context->luma_buffer);
 	context->chroma_buffer = context->luma_buffer + params->src_width * params->src_height;
+	context->chroma_buffer_phys = context->luma_buffer_phys + params->src_width * params->src_height;
 
 	/* allocate bytestream output buffer */
 	context->bytestream_buffer_size = 1 * 1024 * 1024;
@@ -351,6 +363,7 @@ h264enc_new(struct h264enc_params *params)
 			__func__);
 		goto error;
 	}
+	context->bytestream_buffer_phys = ve_virt2phys(context->bytestream_buffer);
 
 	/* allocate reference picture memory */
 	unsigned int luma_size = ALIGN(context->mb_width * 16, 32) * ALIGN(context->mb_height * 16, 32);
@@ -362,7 +375,9 @@ h264enc_new(struct h264enc_params *params)
 				"picture %d buffer.\n", __func__, i);
 			goto error;
 		}
+		context->ref_picture[i].luma_buffer_phys = ve_virt2phys(context->ref_picture[i].luma_buffer);
 		context->ref_picture[i].chroma_buffer = context->ref_picture[i].luma_buffer + luma_size;
+		context->ref_picture[i].chroma_buffer_phys = context->ref_picture[i].luma_buffer_phys + luma_size;
 
 		context->ref_picture[i].extra_buffer = ve_malloc(luma_size / 4);
 		if (!context->ref_picture[i].extra_buffer) {
@@ -370,6 +385,7 @@ h264enc_new(struct h264enc_params *params)
 				"picture %d extra buffer.\n", __func__, i);
 			goto error;
 		}
+		context->ref_picture[i].extra_buffer_phys = ve_virt2phys(context->ref_picture[i].extra_buffer);
 	}
 
 	/* allocate unknown purpose buffers */
@@ -379,6 +395,7 @@ h264enc_new(struct h264enc_params *params)
 			__func__);
 		goto error;
 	}
+	context->extra_buffer_frame_phys = ve_virt2phys(context->extra_buffer_frame);
 
 	int size = (context->mb_width << 4) * 8;
 	context->MB_info = ve_malloc(size);
@@ -387,6 +404,7 @@ h264enc_new(struct h264enc_params *params)
 			__func__);
 		goto error;
 	}
+	context->MB_info_phys = ve_virt2phys(context->MB_info);
 
 	return context;
 
@@ -424,8 +442,8 @@ int h264enc_encode_picture(struct h264enc_context *context)
 
 	/* set output buffer */
 	h264enc_write(H264ENC_STMOST, 0);
-	h264enc_write(H264ENC_STMSTARTADDR, ve_virt2phys(context->bytestream_buffer));
-	h264enc_write(H264ENC_STMENDADDR, ve_virt2phys(context->bytestream_buffer) +
+	h264enc_write(H264ENC_STMSTARTADDR, context->bytestream_buffer_phys);
+	h264enc_write(H264ENC_STMENDADDR, context->bytestream_buffer_phys +
 		      context->bytestream_buffer_size - 1);
 	h264enc_write(H264ENC_STMVSIZE, context->bytestream_buffer_size * 8);
 
@@ -445,26 +463,26 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	h264isp_write(H264ISP_CTRL, context->input_color_format << 29);
 
 	/* set input buffer */
-	h264isp_write(H264ISP_INPUT_Y_ADDR, ve_virt2phys(context->luma_buffer));
-	h264isp_write(H264ISP_INPUT_C0_ADDR, ve_virt2phys(context->chroma_buffer));
+	h264isp_write(H264ISP_INPUT_Y_ADDR, context->luma_buffer_phys);
+	h264isp_write(H264ISP_INPUT_C0_ADDR, context->chroma_buffer_phys);
 
 	/* set reconstruction buffers */
 	struct h264enc_ref_pic *ref_pic = &context->ref_picture[context->current_frame_num % 2];
-	h264enc_write(H264ENC_RECADDRY, ve_virt2phys(ref_pic->luma_buffer));
-	h264enc_write(H264ENC_RECADDRC, ve_virt2phys(ref_pic->chroma_buffer));
-	h264enc_write(H264ENC_SUBPIXADDRNEW, ve_virt2phys(ref_pic->extra_buffer));
+	h264enc_write(H264ENC_RECADDRY, ref_pic->luma_buffer_phys);
+	h264enc_write(H264ENC_RECADDRC, ref_pic->chroma_buffer_phys);
+	h264enc_write(H264ENC_SUBPIXADDRNEW, ref_pic->extra_buffer_phys);
 
 	/* set reference buffers */
 	if (context->current_slice_type != SLICE_I) {
 		ref_pic = &context->ref_picture[(context->current_frame_num + 1) % 2];
-		h264enc_write(H264ENC_REFADDRY, ve_virt2phys(ref_pic->luma_buffer));
-		h264enc_write(H264ENC_REFADDRC, ve_virt2phys(ref_pic->chroma_buffer));
-		h264enc_write(H264ENC_SUBPIXADDRLAST, ve_virt2phys(ref_pic->extra_buffer));
+		h264enc_write(H264ENC_REFADDRY, ref_pic->luma_buffer_phys);
+		h264enc_write(H264ENC_REFADDRC, ref_pic->chroma_buffer_phys);
+		h264enc_write(H264ENC_SUBPIXADDRLAST, ref_pic->extra_buffer_phys);
 	}
 
 	/* set unknown purpose buffers */
-	h264enc_write(H264ENC_MBINFO, ve_virt2phys(context->MB_info));
-	h264enc_write(H264ENC_MVBUFADDR, ve_virt2phys(context->extra_buffer_frame));
+	h264enc_write(H264ENC_MBINFO, context->MB_info_phys);
+	h264enc_write(H264ENC_MVBUFADDR, context->extra_buffer_frame_phys);
 
 	/* set encoding parameters */
 	uint32_t params = 0x0;
