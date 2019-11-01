@@ -50,7 +50,6 @@ static struct
 {
 	int fd;
 	void *regs;
-	int version;
 	struct memchunk_t first_memchunk;
 	pthread_rwlock_t memory_lock;
 	pthread_mutex_t device_lock;
@@ -93,9 +92,6 @@ int ve_open(void)
 
 	writel(0x00130007, ve.regs + VE_CTRL);
 
-	ve.version = readl(ve.regs + VE_VERSION) >> 16;
-	printf("[VDPAU SUNXI] VE version 0x%04x opened.\n", ve.version);
-
 	return 0;
 
 error:
@@ -112,12 +108,6 @@ ve_close(void)
 
 	close(ve.fd);
 	ve.fd = -1;
-}
-
-int
-ve_get_version(void)
-{
-	return ve.version;
 }
 
 int

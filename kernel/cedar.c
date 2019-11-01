@@ -682,6 +682,9 @@ static int cedar_probe(struct platform_device *platform_dev)
 	if (ret)
 		return ret;
 
+	dev_info(dev, "Cedar AVC driver loaded for hw 0x%04X.\n",
+		 cedar_io_read(cedar, CEDAR_VE_VERSION) >> 16);
+
 	return 0;
 }
 

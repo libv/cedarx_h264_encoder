@@ -1,6 +1,9 @@
 #ifndef _CEDAR_REGS_H_
 #define _CEDAR_REGS_H_ 1
 
+#define CEDAR_VE_CTRL				0x00
+#define CEDAR_VE_VERSION			0xf0
+
 #define CEDAR_H264ISP_BASE	0xA00
 
 
