@@ -90,8 +90,6 @@ int ve_open(void)
 	ve.first_memchunk.phys_addr = info.phymem_start - PAGE_OFFSET;
 	ve.first_memchunk.size = info.phymem_total_size;
 
-	writel(0x00130007, ve.regs + VE_CTRL);
-
 	return 0;
 
 error:
@@ -161,16 +159,12 @@ ve_get(int engine, uint32_t flags)
 {
 	pthread_mutex_lock(&ve.device_lock);
 
-	writel(0x00130000 | (engine & 0xf) | (flags & ~0xf), ve.regs + VE_CTRL);
-
 	return ve.regs;
 }
 
 void
 ve_put(void)
 {
-	writel(0x00130007, ve.regs + VE_CTRL);
-
 	pthread_mutex_unlock(&ve.device_lock);
 }
 

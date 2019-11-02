@@ -131,17 +131,13 @@ static irqreturn_t cedar_isr(int irq, void *dev_id)
 		/* clear interrupts */
 		cedarenc_write(CEDAR_H264ENC_INT_STATUS, cedar->int_status);
 
-		/*
-		 * Disable interrupt
-		 * Will be re-enabled by userspace, for now.
-		 */
-		cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0, 0x07);
-
 		cedar->interrupt_received = true;
 		wake_up_interruptible(&cedar->wait_queue);
+
+		return IRQ_HANDLED;
 	}
 
-	return IRQ_HANDLED;
+	return IRQ_NONE;
 }
 
 static int cedar_resources_get(struct sunxi_cedar *cedar,
@@ -352,6 +348,24 @@ static const struct dev_pm_ops cedar_pm_ops = {
 };
 
 
+static void
+cedar_h264enc_enable(struct sunxi_cedar *cedar)
+{
+	cedar_io_write(cedar, CEDAR_VE_CTRL, 0x0013000b);
+	/* enable interrupt and clear status flags */
+	cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0x0F, 0x0F);
+	cedarenc_mask(CEDAR_H264ENC_INT_STATUS, 0x07, 0x07);
+}
+
+static void
+cedar_h264enc_disable(struct sunxi_cedar *cedar)
+{
+	/* enable interrupt and clear status flags */
+	cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0, 0x0F);
+	cedarenc_mask(CEDAR_H264ENC_INT_STATUS, 0x07, 0x07);
+	cedar_io_write(cedar, CEDAR_VE_CTRL, 0);
+}
+
 static int
 cedar_slashdev_open(struct inode *inode, struct file *filp)
 {
@@ -365,6 +379,8 @@ cedar_slashdev_open(struct inode *inode, struct file *filp)
 	cedar->time_open = ktime_get_raw_fast_ns();
 	cedar->time_waiting = 0;
 	cedar->configured = false;
+
+	cedar_h264enc_enable(cedar);
 
 	return 0;
 }
@@ -383,6 +399,8 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 
 	dev_info(cedar->dev, "Time spent: %llu/%lluns\n",
 		 cedar->time_waiting, total);
+
+	cedar_h264enc_disable(cedar);
 
 	cedar->configured = false;
 
@@ -451,10 +469,6 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
 	}
 
 	start = ktime_get_raw_fast_ns();
-
-	/* enable interrupt and clear status flags */
-	cedarenc_mask(CEDAR_H264ENC_INT_ENABLE, 0x0F, 0x0F);
-	cedarenc_mask(CEDAR_H264ENC_INT_STATUS, 0x07, 0x07);
 
 	cedar->interrupt_received = false;
 

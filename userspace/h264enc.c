@@ -492,7 +492,8 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	ve_put();
 
 	if (ret < 0) {
-		fprintf(stderr, "%s(): decoding failed: %d\n", __func__, ret);
+		fprintf(stderr, "%s(): %d: encoding failed: %d\n",
+			__func__, context->frame_count - 1, ret);
 		return ret;
 	}
 
