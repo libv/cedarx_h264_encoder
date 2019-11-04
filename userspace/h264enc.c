@@ -484,16 +484,10 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	h264enc_write(H264ENC_MBINFO, context->MB_info_phys);
 	h264enc_write(H264ENC_MVBUFADDR, context->extra_buffer_frame_phys);
 
-	/* set encoding parameters */
-	uint32_t params = 0x0;
-	if (context->entropy_coding_mode_flag)
-		params |= 0x100;
 	if (context->current_slice_type == SLICE_P)
-		params |= 0x10;
-	h264enc_write(H264ENC_PARA0, params);
-	h264enc_write(H264ENC_PARA1, (4 << 16) | (context->pic_init_qp << 8) | context->pic_init_qp);
-
-	h264enc_write(H264ENC_MEPARA, 0x00000104);
+		h264enc_write(H264ENC_PARA0, 0x10);
+	else
+		h264enc_write(H264ENC_PARA0, 0);
 
 	int ret = ve_encode();
 	if (ret >= 0)
