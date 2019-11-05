@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <stdbool.h>
 
 #include "ve.h"
 #include "h264enc.h"
@@ -107,14 +108,21 @@ ve_close(void)
 }
 
 int
-ve_encode(void)
+ve_encode(bool frame_type_p)
 {
+	struct cedar_ioctl_encode encode = { 0 };
 	int ret;
 
-	ret = ioctl(ve.fd, CEDAR_IOCTL_ENCODE, NULL);
+	if (frame_type_p)
+		encode.frame_type = CEDAR_FRAME_TYPE_P;
+	else
+		encode.frame_type = CEDAR_FRAME_TYPE_I;
+
+	ret = ioctl(ve.fd, CEDAR_IOCTL_ENCODE, &encode);
 	if (ret < 0)
 		fprintf(stderr, "%s(): CEDAR_IOCTL_ENCODE failed: %s\n",
 			__func__, strerror(errno));
+
 	return ret;
 }
 

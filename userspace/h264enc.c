@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "h264enc.h"
 #include "ve.h"
@@ -438,6 +439,8 @@ unsigned int h264enc_get_bytestream_length(struct h264enc_context *context)
 
 int h264enc_encode_picture(struct h264enc_context *context)
 {
+	int ret;
+
 	context->current_slice_type = context->current_frame_num ? SLICE_P : SLICE_I;
 
 	/* set output buffer */
@@ -485,11 +488,9 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	h264enc_write(H264ENC_MVBUFADDR, context->extra_buffer_frame_phys);
 
 	if (context->current_slice_type == SLICE_P)
-		h264enc_write(H264ENC_PARA0, 0x10);
+		ret = ve_encode(true);
 	else
-		h264enc_write(H264ENC_PARA0, 0);
-
-	int ret = ve_encode();
+		ret = ve_encode(false);
 	if (ret >= 0)
 		context->bytestream_length = ret;
 

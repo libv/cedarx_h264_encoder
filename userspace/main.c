@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <stdbool.h>
 
 #include "ve.h"
 #include "h264enc.h"

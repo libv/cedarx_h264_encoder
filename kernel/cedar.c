@@ -77,6 +77,7 @@ struct sunxi_cedar {
 	int level;
 	int qp;
 	int keyframe_interval;
+	int frame_count;
 
 	int entropy_coding_mode;
 };
@@ -449,6 +450,7 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 	cedar->level = config.level;
 	cedar->qp = config.qp;
 	cedar->keyframe_interval = config.keyframe_interval;
+	cedar->frame_count = 0;
 
 	cedar->entropy_coding_mode = config.entropy_coding_mode;
 
@@ -458,9 +460,16 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 }
 
 static long
-cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
+cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 {
+	struct cedar_ioctl_encode encode;
 	uint64_t start, stop;
+
+	if (!from)
+		return -EINVAL;
+
+	if (copy_from_user(&encode, from, sizeof(struct cedar_ioctl_encode)))
+		return -EFAULT;
 
 	if (!cedar->configured) {
 		dev_err(cedar->dev, "%s: CEDAR_IOCTL_CONFIG not run yet.\n",
@@ -469,6 +478,24 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *to)
 	}
 
 	start = ktime_get_raw_fast_ns();
+
+	if (cedar->entropy_coding_mode)
+		cedarenc_mask(CEDAR_H264ENC_PARA0, 0x100, 0x100);
+	else
+		cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x100);
+
+	if (encode.frame_type == CEDAR_FRAME_TYPE_P)
+		cedarenc_mask(CEDAR_H264ENC_PARA0, 0x10, 0x70);
+	else /* I */
+		cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x70);
+
+	/* first chrome QP offset = 4,
+	   set fixed QP and fixed intra QP to QP */
+	cedarenc_write(CEDAR_H264ENC_PARA1, (4 << 16) |
+		       (cedar->qp << 8) | cedar->qp);
+
+	/* motion estimation parameters: disable ME, searchlevel 2 */
+	cedarenc_write(CEDAR_H264ENC_MEPARA, 0x00000104);
 
 	cedar->interrupt_received = false;
 
