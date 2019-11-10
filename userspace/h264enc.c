@@ -377,7 +377,7 @@ h264enc_new(struct h264enc_params *params)
 		context->ref_picture[i].chroma_buffer = context->ref_picture[i].luma_buffer + luma_size;
 		context->ref_picture[i].chroma_buffer_phys = context->ref_picture[i].luma_buffer_phys + luma_size;
 
-		context->ref_picture[i].extra_buffer = ve_malloc(luma_size / 4);
+		context->ref_picture[i].extra_buffer = ve_malloc(luma_size / 2);
 		if (!context->ref_picture[i].extra_buffer) {
 			fprintf(stderr, "%s(): failed to allocate reference "
 				"picture %d extra buffer.\n", __func__, i);
