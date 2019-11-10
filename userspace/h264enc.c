@@ -56,9 +56,6 @@ struct h264enc_context {
 		uint32_t extra_buffer_phys;
 	} ref_picture[2];
 
-	void *extra_buffer_frame; /* unknown purpose */
-	uint32_t extra_buffer_frame_phys;
-
 	void *regs;
 
 	unsigned int write_sps_pps;
@@ -264,8 +261,6 @@ void h264enc_free(struct h264enc_context *context)
 {
 	int i;
 
-	ve_free(context->extra_buffer_frame);
-
 	for (i = 0; i < 2; i++) {
 		ve_free(context->ref_picture[i].luma_buffer);
 		ve_free(context->ref_picture[i].extra_buffer);
@@ -386,19 +381,9 @@ h264enc_new(struct h264enc_params *params)
 		context->ref_picture[i].extra_buffer_phys = ve_virt2phys(context->ref_picture[i].extra_buffer);
 	}
 
-	/* allocate unknown purpose buffers */
-	context->extra_buffer_frame = ve_malloc(ALIGN(context->mb_width, 4) * context->mb_height * 8);
-	if (!context->extra_buffer_frame) {
-		fprintf(stderr, "%s(): failed to allocate extra buffer frame.\n",
-			__func__);
-		goto error;
-	}
-	context->extra_buffer_frame_phys = ve_virt2phys(context->extra_buffer_frame);
-
 	return context;
 
  error:
-	ve_free(context->extra_buffer_frame);
 	ve_free(context->ref_picture[1].luma_buffer);
 	ve_free(context->ref_picture[1].extra_buffer);
 	ve_free(context->ref_picture[0].luma_buffer);
@@ -469,9 +454,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		h264enc_write(H264ENC_REFADDRC, ref_pic->chroma_buffer_phys);
 		h264enc_write(H264ENC_SUBPIXADDRLAST, ref_pic->extra_buffer_phys);
 	}
-
-	/* set unknown purpose buffers */
-	h264enc_write(H264ENC_MVBUFADDR, context->extra_buffer_frame_phys);
 
 	if (context->current_slice_type == SLICE_P)
 		ret = ve_encode(true);

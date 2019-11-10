@@ -72,6 +72,8 @@ struct sunxi_cedar {
 
 	int dst_width;
 	int dst_height;
+	int dst_width_mb;
+	int dst_height_mb;
 
 	int profile;
 	int level;
@@ -81,10 +83,15 @@ struct sunxi_cedar {
 
 	int entropy_coding_mode;
 
-	/* MB info buffer */
+	/* macroblock info buffer */
 	void *mb_info_virtual;
 	dma_addr_t mb_info_dma_addr;
 	size_t mb_info_size;
+
+	/* motion vector buffer */
+	void *mv_buffer_virtual;
+	dma_addr_t mv_buffer_dma_addr;
+	size_t mv_buffer_size;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -417,6 +424,14 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 	cedar->mb_info_virtual = NULL;
 	cedar->mb_info_dma_addr = 0;
 
+	if (cedar->mv_buffer_virtual)
+		dma_free_coherent(cedar->dev, cedar->mv_buffer_size,
+				  cedar->mv_buffer_virtual,
+				  cedar->mv_buffer_dma_addr);
+	cedar->mv_buffer_size = 0;
+	cedar->mv_buffer_virtual = NULL;
+	cedar->mv_buffer_dma_addr = 0;
+
 	cedar->configured = false;
 
 	filp->private_data = cedar;
@@ -464,6 +479,8 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	cedar->dst_width = config.dst_width;
 	cedar->dst_height = config.dst_height;
+	cedar->dst_width_mb = ALIGN(cedar->dst_width, 16) / 16;
+	cedar->dst_height_mb = ALIGN(cedar->dst_height, 16) / 16;
 
 	cedar->profile = config.profile;
 	cedar->level = config.level;
@@ -483,10 +500,31 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 		goto error;
 	}
 
+	cedar->mv_buffer_size =
+		ALIGN(cedar->dst_width_mb, 4) * cedar->dst_height_mb * 8;
+	cedar->mv_buffer_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->mv_buffer_size,
+				   &cedar->mv_buffer_dma_addr, GFP_KERNEL);
+	pr_info("%s(): mv buffer %d bytes at 0x%08X.\n", __func__,
+		cedar->mv_buffer_size, cedar->mv_buffer_dma_addr);
+	if (!cedar->mv_buffer_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate mv_buffer.\n",
+			__func__);
+		goto error;
+	}
+
 	cedar->configured = true;
 
 	return 0;
  error:
+	if (cedar->mv_buffer_virtual)
+		dma_free_coherent(cedar->dev, cedar->mv_buffer_size,
+				  cedar->mv_buffer_virtual,
+				  cedar->mv_buffer_dma_addr);
+	cedar->mv_buffer_size = 0;
+	cedar->mv_buffer_virtual = NULL;
+	cedar->mv_buffer_dma_addr = 0;
+
 	if (cedar->mb_info_virtual)
 		dma_free_coherent(cedar->dev, cedar->mb_info_size,
 				  cedar->mb_info_virtual,
@@ -519,6 +557,8 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	start = ktime_get_raw_fast_ns();
 
 	cedarenc_write(CEDAR_H264ENC_MBINFO, cedar->mb_info_dma_addr);
+	cedarenc_write(CEDAR_H264ENC_MVBUFADDR,
+		       cedar->mv_buffer_dma_addr);
 
 	if (cedar->entropy_coding_mode)
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0x100, 0x100);
