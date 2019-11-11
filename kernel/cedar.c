@@ -69,6 +69,9 @@ struct sunxi_cedar {
 	int src_width;
 	int src_height;
 	int src_format;
+	int src_width_mb;
+	int src_height_mb;
+	int src_stride_mb;
 
 	int dst_width;
 	int dst_height;
@@ -146,6 +149,14 @@ static void __maybe_unused cedar_io_mask(struct sunxi_cedar *cedar,
 	cedar_io_write(cedar, CEDAR_H264ENC_BASE + (a), (v))
 #define cedarenc_mask(a, v, m) \
 	cedar_io_mask(cedar, CEDAR_H264ENC_BASE + (a), (v), (m))
+
+#define cedarisp_read(a) \
+	cedar_io_read(cedar, CEDAR_H264ISP_BASE + (a))
+#define cedarisp_write(a, v) \
+	cedar_io_write(cedar, CEDAR_H264ISP_BASE + (a), (v))
+#define cedarisp_mask(a, v, m) \
+	cedar_io_mask(cedar, CEDAR_H264ISP_BASE + (a), (v), (m))
+
 
 static irqreturn_t cedar_isr(int irq, void *dev_id)
 {
@@ -636,6 +647,10 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 	cedar->src_height = config.src_height;
 	cedar->src_format = config.src_format;
 
+	cedar->src_width_mb = ALIGN(cedar->src_width, 16) >> 4;
+	cedar->src_height_mb = ALIGN(cedar->src_height, 16) >> 4;
+	cedar->src_stride_mb = cedar->src_width_mb;
+
 	cedar->dst_width = config.dst_width;
 	cedar->dst_height = config.dst_height;
 	cedar->dst_width_mb = ALIGN(cedar->dst_width, 16) / 16;
@@ -684,6 +699,18 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	}
 
 	start = ktime_get_raw_fast_ns();
+
+	cedarisp_write(CEDAR_H264ISP_STRIDE_CTRL,
+		       cedar->src_stride_mb << 16);
+	cedarisp_write(CEDAR_H264ISP_INPUT_SIZE,
+		       (cedar->src_width_mb << 16) |
+		       cedar->src_height_mb);
+
+	cedarisp_write(CEDAR_H264ISP_CTRL, 0);
+	cedarisp_write(CEDAR_H264ISP_INPUT_Y_ADDR,
+		       cedar->input_luma_dma_addr);
+	cedarisp_write(CEDAR_H264ISP_INPUT_C0_ADDR,
+		       cedar->input_chroma_dma_addr);
 
 	cedarenc_write(CEDAR_H264ENC_RECADDRY,
 		       cedar->reference_current->luma_dma_addr);

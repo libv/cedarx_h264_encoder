@@ -35,11 +35,6 @@ struct h264enc_context {
 	unsigned int mb_width, mb_height, mb_stride;
 	unsigned int crop_right, crop_bottom;
 
-	uint32_t luma_buffer_phys;
-	uint32_t chroma_buffer_phys;
-
-	enum color_format input_color_format;
-
 	uint8_t *bytestream_buffer;
 	uint32_t bytestream_buffer_phys;
 	unsigned int bytestream_buffer_size;
@@ -86,14 +81,6 @@ static void __maybe_unused cedar_io_mask(struct h264enc_context *context,
 
 	writel(value | temp, context->regs + address);
 }
-
-
-#define h264isp_read(a) \
-	cedar_io_read(context, H264ISP_BASE + (a))
-#define h264isp_write(a, v) \
-	cedar_io_write(context, H264ISP_BASE + (a), (v))
-#define h264isp_mask(a, v, m) \
-	cedar_io_mask(context, H264ISP_BASE + (a), (v), (m))
 
 #define h264enc_read(a) \
 	cedar_io_read(context, H264ENC_BASE + (a))
@@ -308,13 +295,6 @@ h264enc_new(struct h264enc_params *params)
 	context->write_sps_pps = 1;
 	context->current_frame_num = 0;
 
-	/* allocate input buffer */
-	context->input_color_format = params->src_format;
-
-	context->luma_buffer_phys = ve_input_buffer_dma_addr_get();
-	context->chroma_buffer_phys = context->luma_buffer_phys +
-		params->src_width * params->src_height;
-
 	/* allocate bytestream output buffer */
 	context->bytestream_buffer_size = 1 * 1024 * 1024;
 	context->bytestream_buffer = ve_malloc(context->bytestream_buffer_size);
@@ -368,17 +348,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		context->write_sps_pps = 0;
 	}
 	put_slice_header(context);
-
-	/* set input size */
-	h264isp_write(H264ISP_STRIDE_CTRL, context->mb_stride << 16);
-	h264isp_write(H264ISP_INPUT_SIZE, (context->mb_width << 16) | (context->mb_height << 0));
-
-	/* set input format */
-	h264isp_write(H264ISP_CTRL, context->input_color_format << 29);
-
-	/* set input buffer */
-	h264isp_write(H264ISP_INPUT_Y_ADDR, context->luma_buffer_phys);
-	h264isp_write(H264ISP_INPUT_C0_ADDR, context->chroma_buffer_phys);
 
 	if (context->current_slice_type == SLICE_P)
 		ret = ve_encode(true);

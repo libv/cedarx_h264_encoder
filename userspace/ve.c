@@ -37,7 +37,6 @@
 #define DEVICE "/dev/cedar_dev"
 
 static void *input_buffer_virtual;
-static uint32_t input_buffer_dma_addr;
 static int input_buffer_size;
 
 #define PAGE_OFFSET (0xc0000000) // from kernel
@@ -163,11 +162,10 @@ int ve_config(struct h264enc_params *params)
 		return ret;
 	}
 
-	input_buffer_dma_addr = config.input_dma_addr;
 	input_buffer_size = config.input_size;
 	input_buffer_virtual =
 		mmap(NULL, input_buffer_size, PROT_READ | PROT_WRITE,
-		     MAP_SHARED, ve.fd, input_buffer_dma_addr);
+		     MAP_SHARED, ve.fd, config.input_dma_addr);
 	if (input_buffer_virtual == MAP_FAILED) {
 		fprintf(stderr, "%s(): failed to mmap input buffer: %s.\n",
 			__func__, strerror(errno));
@@ -175,7 +173,7 @@ int ve_config(struct h264enc_params *params)
 	}
 
 	printf("Input: %dbytes at 0x%08X -> %p\n", input_buffer_size,
-	       input_buffer_dma_addr, input_buffer_virtual);
+	       config.input_dma_addr, input_buffer_virtual);
 
 	return 0;
 }
@@ -184,12 +182,6 @@ void *
 ve_input_buffer_virtual_get(void)
 {
 	return input_buffer_virtual;
-}
-
-uint32_t
-ve_input_buffer_dma_addr_get(void)
-{
-	return input_buffer_dma_addr;
 }
 
 void *
