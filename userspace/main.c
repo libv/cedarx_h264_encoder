@@ -63,26 +63,8 @@ struct h264enc_params {
 	unsigned int keyframe_interval;
 };
 
-int ve_open(void)
-{
-	cedar_fd = open(DEVICE, O_RDWR);
-	if (cedar_fd == -1) {
-		fprintf(stderr, "%s(): failed to open %s: %s\n",
-			__func__, DEVICE, strerror(errno));
-		return -1;
-	}
-
-	return 0;
-}
-
-void
-ve_close(void)
-{
-	close(cedar_fd);
-	cedar_fd = -1;
-}
-
-int ve_config(struct h264enc_params *params)
+static int
+ve_config(struct h264enc_params *params)
 {
 	struct cedar_ioctl_config config = { 0 };
 	int ret;
@@ -202,10 +184,11 @@ int main(int argc, char **argv)
 	width = atoi(argv[2]);
 	height = atoi(argv[3]);
 
-	ret = ve_open();
-	if (ret) {
-		fprintf(stderr, "%s(): ve_open() failed.\n", __func__);
-		return EXIT_FAILURE;
+	cedar_fd = open(DEVICE, O_RDWR);
+	if (cedar_fd == -1) {
+		fprintf(stderr, "%s(): failed to open %s: %s\n",
+			__func__, DEVICE, strerror(errno));
+		return -1;
 	}
 
 	if (strcmp(argv[1], "-")) {
