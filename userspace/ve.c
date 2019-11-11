@@ -63,17 +63,11 @@ ve_close(void)
 }
 
 int
-ve_encode(bool frame_type_p)
+ve_encode(void)
 {
-	struct cedar_ioctl_encode encode = { 0 };
 	int ret;
 
-	if (frame_type_p)
-		encode.frame_type = CEDAR_FRAME_TYPE_P;
-	else
-		encode.frame_type = CEDAR_FRAME_TYPE_I;
-
-	ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, &encode);
+	ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
 	if (ret < 0)
 		fprintf(stderr, "%s(): CEDAR_IOCTL_ENCODE failed: %s\n",
 			__func__, strerror(errno));

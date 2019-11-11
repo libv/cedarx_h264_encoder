@@ -29,12 +29,7 @@
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
 struct h264enc_context {
-	unsigned int keyframe_interval;
-
-	unsigned int current_frame_num;
 	unsigned int frame_count;
-	enum slice_type { SLICE_P = 0, SLICE_I = 2 } current_slice_type;
-
 };
 
 void h264enc_free(struct h264enc_context *context)
@@ -78,10 +73,6 @@ h264enc_new(struct h264enc_params *params)
 		return NULL;
 	}
 
-	context->keyframe_interval = params->keyframe_interval;
-
-	context->current_frame_num = 0;
-
 	return context;
 }
 
@@ -89,25 +80,15 @@ int h264enc_encode_picture(struct h264enc_context *context)
 {
 	int ret;
 
-	context->current_slice_type = context->current_frame_num ? SLICE_P : SLICE_I;
-
-	if (context->current_slice_type == SLICE_P)
-		ret = ve_encode(true);
-	else
-		ret = ve_encode(false);
-
-	/* next frame */
-	context->current_frame_num++;
-	if (context->current_frame_num >= context->keyframe_interval)
-		context->current_frame_num = 0;
-	context->frame_count++;
-
+	ret = ve_encode();
 	if (ret < 0) {
 		fprintf(stderr, "%s(): %d: encoding failed: %d\n",
-			__func__, context->frame_count - 1, ret);
+			__func__, context->frame_count, ret);
 		return ret;
 	} else
 		printf("\rFrame %5d: %dbytes", context->frame_count, ret);
+
+	context->frame_count++;
 
 	return ret;
 }

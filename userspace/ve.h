@@ -27,7 +27,7 @@ void ve_close(void);
 
 struct h264enc_params;
 int ve_config(struct h264enc_params *params);
-int ve_encode(bool frame_type_p);
+int ve_encode(void);
 
 void *ve_input_buffer_virtual_get(void);
 void *ve_bytestream_virtual_get(void);

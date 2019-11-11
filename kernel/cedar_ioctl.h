@@ -32,11 +32,4 @@ struct cedar_ioctl_config {
 	int bytestream_size;
 };
 
-struct cedar_ioctl_encode {
-#define CEDAR_FRAME_TYPE_I 0
-#define CEDAR_FRAME_TYPE_P 1
-#define CEDAR_FRAME_TYPE_B 2
-	int frame_type;
-};
-
 #endif /* _CEDAR_IOCTL_H_ */

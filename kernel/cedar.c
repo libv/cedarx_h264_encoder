@@ -41,6 +41,10 @@
 
 #define MODULE_NAME "sunxi_cedar"
 
+#define CEDAR_FRAME_TYPE_I 0
+#define CEDAR_FRAME_TYPE_P 1
+#define CEDAR_FRAME_TYPE_B 2
+
 struct sunxi_cedar {
 	struct device *dev;
 
@@ -889,15 +893,9 @@ cedar_bytestream_sliceheader(struct sunxi_cedar *cedar, bool frame_i)
 static long
 cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 {
-	struct cedar_ioctl_encode encode;
 	struct cedar_reference_frame *reference_tmp;
 	uint64_t start, stop;
-
-	if (!from)
-		return -EINVAL;
-
-	if (copy_from_user(&encode, from, sizeof(struct cedar_ioctl_encode)))
-		return -EFAULT;
+	int frame_type;
 
 	if (!cedar->configured) {
 		dev_err(cedar->dev, "%s: CEDAR_IOCTL_CONFIG not run yet.\n",
@@ -907,8 +905,10 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 
 	start = ktime_get_raw_fast_ns();
 
-	if (encode.frame_type == CEDAR_FRAME_TYPE_I)
-		cedar->frame_p_count = 0;
+	if (cedar->frame_p_count == 0)
+		frame_type = CEDAR_FRAME_TYPE_I;
+	else
+		frame_type = CEDAR_FRAME_TYPE_P;
 
 	cedarenc_write(CEDAR_H264ENC_STMOST, 0);
 	cedarenc_write(CEDAR_H264ENC_STMSTARTADDR, cedar->bytestream_dma_addr);
@@ -921,7 +921,7 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 		cedar_bytestream_picture_parameter_set(cedar);
 	}
 
-	if (encode.frame_type == CEDAR_FRAME_TYPE_P)
+	if (frame_type == CEDAR_FRAME_TYPE_P)
 		cedar_bytestream_sliceheader(cedar, false);
 	else
 		cedar_bytestream_sliceheader(cedar, true);
@@ -945,7 +945,7 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	cedarenc_write(CEDAR_H264ENC_SUBPIXADDRNEW,
 		       cedar->reference_current->subpic_dma_addr);
 
-	if (encode.frame_type == CEDAR_FRAME_TYPE_P) {
+	if (frame_type == CEDAR_FRAME_TYPE_P) {
 		cedarenc_write(CEDAR_H264ENC_REFADDRY,
 			       cedar->reference_previous->luma_dma_addr);
 		cedarenc_write(CEDAR_H264ENC_REFADDRC,
@@ -963,7 +963,7 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	else
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x100);
 
-	if (encode.frame_type == CEDAR_FRAME_TYPE_P)
+	if (frame_type == CEDAR_FRAME_TYPE_P)
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0x10, 0x70);
 	else /* I */
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x70);
@@ -997,6 +997,8 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	}
 
 	cedar->frame_p_count++;
+	if (cedar->frame_p_count == cedar->keyframe_interval)
+		cedar->frame_p_count = 0;
 	cedar->frame_count++;
 
 	/* swap reference_frames around to prepare for a future frame */
