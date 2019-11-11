@@ -125,36 +125,6 @@ ve_config(struct h264enc_params *params)
 }
 
 static int
-h264enc_new(struct h264enc_params *params)
-{
-	int ret;
-
-	/* check parameter validity */
-	if (!IS_ALIGNED(params->src_width, 16) || !IS_ALIGNED(params->src_height, 16) ||
-	    !IS_ALIGNED(params->width, 2) || !IS_ALIGNED(params->height, 2) ||
-	    params->width > params->src_width || params->height > params->src_height) {
-		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
-		return -1;
-	}
-
-	if (params->qp == 0 || params->qp > 47) {
-		fprintf(stderr, "%s(): invalid QP.\n", __func__);
-		return -1;
-	}
-
-	if (params->src_format != H264_FMT_NV12 && params->src_format != H264_FMT_NV16) {
-		fprintf(stderr, "%s(): invalid color format.\n", __func__);
-		return -1;
-	}
-
-	ret = ve_config(params);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int
 read_frame(int fd, void *buffer, int size)
 {
 	int total = 0, len;
@@ -223,11 +193,27 @@ int main(int argc, char **argv)
 
 	input_size = params.src_width * (params.src_height + params.src_height / 2);
 
-	ret = h264enc_new(&params);
-	if (ret) {
-		fprintf(stderr, "%s: could not create context\n", __func__);
-		return EXIT_FAILURE;
+	/* check parameter validity */
+	if (!IS_ALIGNED(params.src_width, 16) || !IS_ALIGNED(params.src_height, 16) ||
+	    !IS_ALIGNED(params.width, 2) || !IS_ALIGNED(params.height, 2) ||
+	    params.width > params.src_width || params.height > params.src_height) {
+		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
+		return -1;
 	}
+
+	if (params.qp == 0 || params.qp > 47) {
+		fprintf(stderr, "%s(): invalid QP.\n", __func__);
+		return -1;
+	}
+
+	if (params.src_format != H264_FMT_NV12 && params.src_format != H264_FMT_NV16) {
+		fprintf(stderr, "%s(): invalid color format.\n", __func__);
+		return -1;
+	}
+
+	ret = ve_config(&params);
+	if (ret)
+		return ret;
 
 	while (!read_frame(fd_in, input_buffer, input_size)) {
 		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
