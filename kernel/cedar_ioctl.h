@@ -34,6 +34,9 @@ struct cedar_ioctl_config {
 
 	uint32_t input_dma_addr;
 	int input_size;
+
+	uint32_t bytestream_dma_addr;
+	int bytestream_size;
 };
 
 struct cedar_ioctl_encode {

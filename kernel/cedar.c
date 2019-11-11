@@ -122,6 +122,11 @@ struct sunxi_cedar {
 	void *mv_buffer_virtual;
 	dma_addr_t mv_buffer_dma_addr;
 	size_t mv_buffer_size;
+
+	/* h.264 encoded bytestream */
+	void *bytestream_virtual;
+	dma_addr_t bytestream_dma_addr;
+	size_t bytestream_size;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -532,6 +537,14 @@ cedar_buffers_cleanup(struct sunxi_cedar *cedar)
 	cedar->mb_info_size = 0;
 	cedar->mb_info_virtual = NULL;
 	cedar->mb_info_dma_addr = 0;
+
+	if (cedar->bytestream_virtual)
+		dma_free_coherent(cedar->dev, cedar->bytestream_size,
+				  cedar->bytestream_virtual,
+				  cedar->bytestream_dma_addr);
+	cedar->bytestream_size = 0;
+	cedar->bytestream_virtual = NULL;
+	cedar->bytestream_dma_addr = 0;
 }
 
 static int
@@ -579,6 +592,16 @@ cedar_buffers_init(struct sunxi_cedar *cedar)
 		cedar->mv_buffer_size, cedar->mv_buffer_dma_addr);
 	if (!cedar->mv_buffer_virtual) {
 		dev_err(cedar->dev, "%s: failed to allocate mv_buffer.\n",
+			__func__);
+		goto error;
+	}
+
+	cedar->bytestream_size = 1 << 20;
+	cedar->bytestream_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->bytestream_size,
+				   &cedar->bytestream_dma_addr, GFP_KERNEL);
+	if (!cedar->bytestream_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate bytestream.\n",
 			__func__);
 		goto error;
 	}
@@ -679,6 +702,9 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	config.input_dma_addr = cedar->input_luma_dma_addr;
 	config.input_size = cedar->input_size;
+
+	config.bytestream_dma_addr = cedar->bytestream_dma_addr;
+	config.bytestream_size = cedar->bytestream_size;
 
 	if (copy_to_user(from, &config, sizeof(struct cedar_ioctl_config)))
 		return -EFAULT;
@@ -884,6 +910,9 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 		return cedar_slashdev_mmap_mem(cedar, vma);
 	else if ((address = cedar->input_luma_dma_addr) &&
 		 (size == cedar->input_size))
+		return cedar_slashdev_mmap_mem(cedar, vma);
+	else if ((address = cedar->bytestream_dma_addr) &&
+		 (size == cedar->bytestream_size))
 		return cedar_slashdev_mmap_mem(cedar, vma);
 	else {
 		dev_err(cedar->dev, "%s(0x%08X): invalid offset;\n",

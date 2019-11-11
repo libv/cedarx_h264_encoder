@@ -39,6 +39,10 @@
 static void *input_buffer_virtual;
 static int input_buffer_size;
 
+static void *bytestream_virtual;
+static uint32_t bytestream_dma_addr;
+static int bytestream_size;
+
 #define PAGE_OFFSET (0xc0000000) // from kernel
 #define PAGE_SIZE (4096)
 
@@ -175,6 +179,20 @@ int ve_config(struct h264enc_params *params)
 	printf("Input: %dbytes at 0x%08X -> %p\n", input_buffer_size,
 	       config.input_dma_addr, input_buffer_virtual);
 
+	bytestream_size = config.bytestream_size;
+	bytestream_dma_addr = config.bytestream_dma_addr;
+	bytestream_virtual =
+		mmap(NULL, bytestream_size, PROT_READ | PROT_WRITE,
+		     MAP_SHARED, ve.fd, config.bytestream_dma_addr);
+	if (bytestream_virtual == MAP_FAILED) {
+		fprintf(stderr, "%s(): failed to mmap input buffer: %s.\n",
+			__func__, strerror(errno));
+		return -ENOMEM;
+	}
+
+	printf("Bytestream: %dbytes at 0x%08X -> %p\n", bytestream_size,
+	       config.bytestream_dma_addr, bytestream_virtual);
+
 	return 0;
 }
 
@@ -182,6 +200,19 @@ void *
 ve_input_buffer_virtual_get(void)
 {
 	return input_buffer_virtual;
+}
+
+void *
+ve_bytestream_virtual_get(void)
+{
+	return bytestream_virtual;
+}
+
+uint32_t
+ve_bytestream_dma_addr_get(int *size)
+{
+	*size = bytestream_size;
+	return bytestream_dma_addr;
 }
 
 void *

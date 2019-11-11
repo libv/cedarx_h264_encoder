@@ -37,7 +37,7 @@ struct h264enc_context {
 
 	uint8_t *bytestream_buffer;
 	uint32_t bytestream_buffer_phys;
-	unsigned int bytestream_buffer_size;
+	int bytestream_buffer_size;
 
 	void *regs;
 
@@ -294,22 +294,10 @@ h264enc_new(struct h264enc_params *params)
 	context->write_sps_pps = 1;
 	context->current_frame_num = 0;
 
-	/* allocate bytestream output buffer */
-	context->bytestream_buffer_size = 1 * 1024 * 1024;
-	context->bytestream_buffer = ve_malloc(context->bytestream_buffer_size);
-	if (!context->bytestream_buffer) {
-		fprintf(stderr, "%s(): failed to allocate bytestream buffer.\n",
-			__func__);
-		goto error;
-	}
-	context->bytestream_buffer_phys = ve_virt2phys(context->bytestream_buffer);
+	context->bytestream_buffer_phys =
+		ve_bytestream_dma_addr_get(&context->bytestream_buffer_size);
 
 	return context;
-
- error:
-	ve_free(context->bytestream_buffer);
-	h264enc_free(context);
-	return NULL;
 }
 
 void *h264enc_get_input_buffer(struct h264enc_context *context)
@@ -319,7 +307,7 @@ void *h264enc_get_input_buffer(struct h264enc_context *context)
 
 void *h264enc_get_bytestream_buffer(struct h264enc_context *context)
 {
-	return context->bytestream_buffer;
+	return ve_bytestream_virtual_get();
 }
 
 int h264enc_encode_picture(struct h264enc_context *context)
