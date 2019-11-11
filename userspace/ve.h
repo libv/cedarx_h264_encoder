@@ -34,4 +34,7 @@ struct h264enc_params;
 int ve_config(struct h264enc_params *params);
 int ve_encode(bool frame_type_p);
 
+void *ve_input_buffer_virtual_get(void);
+uint32_t ve_input_buffer_dma_addr_get(void);
+
 #endif

@@ -83,6 +83,11 @@ struct sunxi_cedar {
 
 	int entropy_coding_mode;
 
+	size_t input_size;
+	void *input_luma_virtual;
+	dma_addr_t input_luma_dma_addr;
+	dma_addr_t input_chroma_dma_addr;
+
 	struct cedar_reference_frame {
 		void *luma_virtual;
 		dma_addr_t luma_dma_addr;
@@ -477,6 +482,95 @@ cedar_reference_frame_init(struct sunxi_cedar *cedar,
 	return -ENOMEM;
 }
 
+static void
+cedar_buffers_cleanup(struct sunxi_cedar *cedar)
+{
+	if (cedar->input_luma_virtual)
+		dma_free_coherent(cedar->dev, cedar->input_size,
+				  cedar->input_luma_virtual,
+				  cedar->input_luma_dma_addr);
+	cedar->input_luma_virtual = NULL;
+	cedar->input_luma_dma_addr = 0;
+	cedar->input_chroma_dma_addr = 0;
+	cedar->input_size = 0;
+
+	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[0]);
+	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[1]);
+	cedar->reference_current = NULL;
+	cedar->reference_previous = NULL;
+
+	if (cedar->mv_buffer_virtual)
+		dma_free_coherent(cedar->dev, cedar->mv_buffer_size,
+				  cedar->mv_buffer_virtual,
+				  cedar->mv_buffer_dma_addr);
+	cedar->mv_buffer_size = 0;
+	cedar->mv_buffer_virtual = NULL;
+	cedar->mv_buffer_dma_addr = 0;
+
+	if (cedar->mb_info_virtual)
+		dma_free_coherent(cedar->dev, cedar->mb_info_size,
+				  cedar->mb_info_virtual,
+				  cedar->mb_info_dma_addr);
+	cedar->mb_info_size = 0;
+	cedar->mb_info_virtual = NULL;
+	cedar->mb_info_dma_addr = 0;
+}
+
+static int
+cedar_buffers_init(struct sunxi_cedar *cedar)
+{
+	int size, ret;
+
+	size = cedar->src_width * cedar->src_height;
+	cedar->input_size = ALIGN(size + (size >> 1), 4096);
+	cedar->input_luma_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->input_size,
+				   &cedar->input_luma_dma_addr, GFP_KERNEL);
+	if (!cedar->input_luma_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate luma.\n",
+			__func__);
+		goto error;
+	}
+	cedar->input_chroma_dma_addr = cedar->input_luma_dma_addr + size;
+
+	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[0]);
+	if (ret)
+		goto error;
+	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[1]);
+	if (ret)
+		goto error;
+	cedar->reference_current = &cedar->reference_frame[0];
+	cedar->reference_previous = &cedar->reference_frame[1];
+
+	cedar->mb_info_size = ALIGN(cedar->dst_width, 16) * 8;
+	cedar->mb_info_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->mb_info_size,
+				   &cedar->mb_info_dma_addr, GFP_KERNEL);
+	if (!cedar->mb_info_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate mb_info.\n",
+			__func__);
+		goto error;
+	}
+
+	cedar->mv_buffer_size =
+		ALIGN(cedar->dst_width_mb, 4) * cedar->dst_height_mb * 8;
+	cedar->mv_buffer_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->mv_buffer_size,
+				   &cedar->mv_buffer_dma_addr, GFP_KERNEL);
+	pr_info("%s(): mv buffer %d bytes at 0x%08X.\n", __func__,
+		cedar->mv_buffer_size, cedar->mv_buffer_dma_addr);
+	if (!cedar->mv_buffer_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate mv_buffer.\n",
+			__func__);
+		goto error;
+	}
+
+	return 0;
+ error:
+	cedar_buffers_cleanup(cedar);
+	return -ENOMEM;
+}
+
 static int
 cedar_slashdev_release(struct inode *inode, struct file *filp)
 {
@@ -494,27 +588,7 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 
 	cedar_h264enc_disable(cedar);
 
-	/* cleanup */
-	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[0]);
-	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[1]);
-	cedar->reference_current = NULL;
-	cedar->reference_previous = NULL;
-
-	if (cedar->mb_info_virtual)
-		dma_free_coherent(cedar->dev, cedar->mb_info_size,
-				  cedar->mb_info_virtual,
-				  cedar->mb_info_dma_addr);
-	cedar->mb_info_size = 0;
-	cedar->mb_info_virtual = NULL;
-	cedar->mb_info_dma_addr = 0;
-
-	if (cedar->mv_buffer_virtual)
-		dma_free_coherent(cedar->dev, cedar->mv_buffer_size,
-				  cedar->mv_buffer_virtual,
-				  cedar->mv_buffer_dma_addr);
-	cedar->mv_buffer_size = 0;
-	cedar->mv_buffer_virtual = NULL;
-	cedar->mv_buffer_dma_addr = 0;
+	cedar_buffers_cleanup(cedar);
 
 	cedar->configured = false;
 
@@ -575,64 +649,19 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	cedar->entropy_coding_mode = config.entropy_coding_mode;
 
-	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[0]);
+	ret = cedar_buffers_init(cedar);
 	if (ret)
-		goto error;
-	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[1]);
-	if (ret)
-		goto error;
-	cedar->reference_current = &cedar->reference_frame[0];
-	cedar->reference_previous = &cedar->reference_frame[1];
-
-	cedar->mb_info_size = ALIGN(cedar->dst_width, 16) * 8;
-	cedar->mb_info_virtual =
-		dma_alloc_coherent(cedar->dev, cedar->mb_info_size,
-				   &cedar->mb_info_dma_addr, GFP_KERNEL);
-	if (!cedar->mb_info_virtual) {
-		dev_err(cedar->dev, "%s: failed to allocate mb_info.\n",
-			__func__);
-		goto error;
-	}
-
-	cedar->mv_buffer_size =
-		ALIGN(cedar->dst_width_mb, 4) * cedar->dst_height_mb * 8;
-	cedar->mv_buffer_virtual =
-		dma_alloc_coherent(cedar->dev, cedar->mv_buffer_size,
-				   &cedar->mv_buffer_dma_addr, GFP_KERNEL);
-	pr_info("%s(): mv buffer %d bytes at 0x%08X.\n", __func__,
-		cedar->mv_buffer_size, cedar->mv_buffer_dma_addr);
-	if (!cedar->mv_buffer_virtual) {
-		dev_err(cedar->dev, "%s: failed to allocate mv_buffer.\n",
-			__func__);
-		goto error;
-	}
+		return ret;
 
 	cedar->configured = true;
 
+	config.input_dma_addr = cedar->input_luma_dma_addr;
+	config.input_size = cedar->input_size;
+
+	if (copy_to_user(from, &config, sizeof(struct cedar_ioctl_config)))
+		return -EFAULT;
+
 	return 0;
- error:
-	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[0]);
-	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[1]);
-	cedar->reference_current = NULL;
-	cedar->reference_previous = NULL;
-
-	if (cedar->mv_buffer_virtual)
-		dma_free_coherent(cedar->dev, cedar->mv_buffer_size,
-				  cedar->mv_buffer_virtual,
-				  cedar->mv_buffer_dma_addr);
-	cedar->mv_buffer_size = 0;
-	cedar->mv_buffer_virtual = NULL;
-	cedar->mv_buffer_dma_addr = 0;
-
-	if (cedar->mb_info_virtual)
-		dma_free_coherent(cedar->dev, cedar->mb_info_size,
-				  cedar->mb_info_virtual,
-				  cedar->mb_info_dma_addr);
-	cedar->mb_info_size = 0;
-	cedar->mb_info_virtual = NULL;
-	cedar->mb_info_dma_addr = 0;
-
-	return -ENOMEM;
 }
 
 static long
@@ -812,14 +841,17 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 	phys_addr_t address = vma->vm_pgoff << 12;
 	size_t size = vma->vm_end - vma->vm_start;
 
-	dev_info(cedar->dev, "%s(0x%08X);\n", __func__, address);
+	dev_info(cedar->dev, "%s(0x%08X, 0x%04X);\n", __func__, address, size);
 
 	if (address == cedar->mmio_resource->start)
 		return cedar_slashdev_mmap_io(cedar, vma);
 	else if ((address >= cedar->mem_address) &&
-		 ((address + size) <= (cedar->mem_address + cedar->mem_size))) {
+		 ((address + size) <= (cedar->mem_address + cedar->mem_size)))
 		return cedar_slashdev_mmap_mem(cedar, vma);
-	} else {
+	else if ((address = cedar->input_luma_dma_addr) &&
+		 (size == cedar->input_size))
+		return cedar_slashdev_mmap_mem(cedar, vma);
+	else {
 		dev_err(cedar->dev, "%s(0x%08X): invalid offset;\n",
 			__func__, address);
 		dev_info(cedar->dev, "0x%lX -> 0x%lX\n", vma->vm_start, vma->vm_end);

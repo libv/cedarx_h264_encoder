@@ -35,11 +35,9 @@ struct h264enc_context {
 	unsigned int mb_width, mb_height, mb_stride;
 	unsigned int crop_right, crop_bottom;
 
-	uint8_t *luma_buffer;
 	uint32_t luma_buffer_phys;
-	uint8_t *chroma_buffer;
 	uint32_t chroma_buffer_phys;
-	unsigned int input_buffer_size;
+
 	enum color_format input_color_format;
 
 	uint8_t *bytestream_buffer;
@@ -251,7 +249,6 @@ static void put_slice_header(struct h264enc_context *context)
 void h264enc_free(struct h264enc_context *context)
 {
 	ve_free(context->bytestream_buffer);
-	ve_free(context->luma_buffer);
 	free(context);
 }
 
@@ -313,24 +310,10 @@ h264enc_new(struct h264enc_params *params)
 
 	/* allocate input buffer */
 	context->input_color_format = params->src_format;
-	switch (context->input_color_format) {
-	case H264_FMT_NV12:
-		context->input_buffer_size = params->src_width * (params->src_height + params->src_height / 2);
-		break;
-	case H264_FMT_NV16:
-		context->input_buffer_size = params->src_width * params->src_height * 2;
-		break;
-	}
 
-	context->luma_buffer = ve_malloc(context->input_buffer_size);
-	if (!context->luma_buffer) {
-		fprintf(stderr, "%s(): failed to allocate input buffer.\n",
-			__func__);
-		goto error;
-	}
-	context->luma_buffer_phys = ve_virt2phys(context->luma_buffer);
-	context->chroma_buffer = context->luma_buffer + params->src_width * params->src_height;
-	context->chroma_buffer_phys = context->luma_buffer_phys + params->src_width * params->src_height;
+	context->luma_buffer_phys = ve_input_buffer_dma_addr_get();
+	context->chroma_buffer_phys = context->luma_buffer_phys +
+		params->src_width * params->src_height;
 
 	/* allocate bytestream output buffer */
 	context->bytestream_buffer_size = 1 * 1024 * 1024;
@@ -346,14 +329,13 @@ h264enc_new(struct h264enc_params *params)
 
  error:
 	ve_free(context->bytestream_buffer);
-	ve_free(context->luma_buffer);
 	h264enc_free(context);
 	return NULL;
 }
 
 void *h264enc_get_input_buffer(struct h264enc_context *context)
 {
-	return context->luma_buffer;
+	return ve_input_buffer_virtual_get();
 }
 
 void *h264enc_get_bytestream_buffer(struct h264enc_context *context)
