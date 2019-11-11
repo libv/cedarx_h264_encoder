@@ -38,8 +38,6 @@
 
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
-static uint32_t frame_count;
-
 static void *input_buffer_virtual;
 static int input_buffer_size;
 
@@ -82,19 +80,6 @@ ve_close(void)
 {
 	close(cedar_fd);
 	cedar_fd = -1;
-}
-
-int
-ve_encode(void)
-{
-	int ret;
-
-	ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
-	if (ret < 0)
-		fprintf(stderr, "%s(): CEDAR_IOCTL_ENCODE failed: %s\n",
-			__func__, strerror(errno));
-
-	return ret;
 }
 
 int ve_config(struct h264enc_params *params)
@@ -202,24 +187,6 @@ h264enc_new(struct h264enc_params *params)
 }
 
 static int
-h264enc_encode_picture(void)
-{
-	int ret;
-
-	ret = ve_encode();
-	if (ret < 0) {
-		fprintf(stderr, "%s(): %d: encoding failed: %d\n",
-			__func__, frame_count, ret);
-		return ret;
-	} else
-		printf("\rFrame %5d: %dbytes", frame_count, ret);
-
-	frame_count++;
-
-	return ret;
-}
-
-static int
 read_frame(int fd, void *buffer, int size)
 {
 	int total = 0, len;
@@ -236,6 +203,7 @@ read_frame(int fd, void *buffer, int size)
 
 int main(int argc, char **argv)
 {
+	uint32_t frame_count = 0;
 	struct h264enc_params params;
 	void *input_buf, *output_buf;
 	int width, height, input_size, ret;
@@ -297,11 +265,15 @@ int main(int argc, char **argv)
 	output_buf = ve_bytestream_virtual_get();
 
 	while (!read_frame(in, input_buf, input_size)) {
-		ret = h264enc_encode_picture();
-		if (ret <= 0)
-			fprintf(stderr, "%s: encoding error.\n", __func__);
-		else
+		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
+		if (ret < 0)
+			fprintf(stderr, "%s(): %d: CEDAR_IOCTL_ENCODE failed: %s\n",
+				__func__, frame_count, strerror(errno));
+		else {
+			printf("\rFrame %5d: %5dbytes", frame_count, ret);
 			write(out, output_buf, ret);
+			frame_count++;
+		}
 	}
 
 	return EXIT_SUCCESS;
