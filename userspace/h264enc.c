@@ -30,9 +30,6 @@
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
 struct h264enc_context {
-	uint32_t bytestream_buffer_phys;
-	int bytestream_buffer_size;
-
 	void *regs;
 
 	unsigned int keyframe_interval;
@@ -122,9 +119,6 @@ h264enc_new(struct h264enc_params *params)
 
 	context->current_frame_num = 0;
 
-	context->bytestream_buffer_phys =
-		ve_bytestream_dma_addr_get(&context->bytestream_buffer_size);
-
 	return context;
 }
 
@@ -133,13 +127,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	int ret;
 
 	context->current_slice_type = context->current_frame_num ? SLICE_P : SLICE_I;
-
-	/* set output buffer */
-	h264enc_write(H264ENC_STMOST, 0);
-	h264enc_write(H264ENC_STMSTARTADDR, context->bytestream_buffer_phys);
-	h264enc_write(H264ENC_STMENDADDR, context->bytestream_buffer_phys +
-		      context->bytestream_buffer_size - 1);
-	h264enc_write(H264ENC_STMVSIZE, context->bytestream_buffer_size * 8);
 
 	if (context->current_slice_type == SLICE_P)
 		ret = ve_encode(true);

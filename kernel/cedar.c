@@ -926,6 +926,12 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	if (encode.frame_type == CEDAR_FRAME_TYPE_I)
 		cedar->frame_p_count = 0;
 
+	cedarenc_write(CEDAR_H264ENC_STMOST, 0);
+	cedarenc_write(CEDAR_H264ENC_STMSTARTADDR, cedar->bytestream_dma_addr);
+	cedarenc_write(CEDAR_H264ENC_STMENDADDR, cedar->bytestream_dma_addr +
+		       cedar->bytestream_size - 1);
+	cedarenc_write(CEDAR_H264ENC_STMVSIZE, cedar->bytestream_size * 8);
+
 	if (!cedar->frame_count) {
 		cedar_bytestream_sequence_parameter_set(cedar);
 		cedar_bytestream_picture_parameter_set(cedar);

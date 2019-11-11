@@ -32,6 +32,5 @@ int ve_encode(bool frame_type_p);
 
 void *ve_input_buffer_virtual_get(void);
 void *ve_bytestream_virtual_get(void);
-uint32_t ve_bytestream_dma_addr_get(int *size);
 
 #endif

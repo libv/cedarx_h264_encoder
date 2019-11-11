@@ -40,7 +40,6 @@ static void *input_buffer_virtual;
 static int input_buffer_size;
 
 static void *bytestream_virtual;
-static uint32_t bytestream_dma_addr;
 static int bytestream_size;
 
 static int cedar_fd = -1;
@@ -158,7 +157,6 @@ int ve_config(struct h264enc_params *params)
 	       config.input_dma_addr, input_buffer_virtual);
 
 	bytestream_size = config.bytestream_size;
-	bytestream_dma_addr = config.bytestream_dma_addr;
 	bytestream_virtual =
 		mmap(NULL, bytestream_size, PROT_READ | PROT_WRITE,
 		     MAP_SHARED, cedar_fd, config.bytestream_dma_addr);
@@ -184,13 +182,6 @@ void *
 ve_bytestream_virtual_get(void)
 {
 	return bytestream_virtual;
-}
-
-uint32_t
-ve_bytestream_dma_addr_get(int *size)
-{
-	*size = bytestream_size;
-	return bytestream_dma_addr;
 }
 
 void *
