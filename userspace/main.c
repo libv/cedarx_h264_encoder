@@ -36,6 +36,7 @@
 
 #define DEVICE "/dev/cedar_dev"
 
+#define ALIGN(x, a) (((x) + ((typeof(x))(a) - 1)) & ~((typeof(x))(a) - 1))
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
 static void *input_buffer;
@@ -46,49 +47,45 @@ static int bytestream_size;
 
 static int cedar_fd = -1;
 
-struct h264enc_params {
-	unsigned int width;
-	unsigned int height;
-
-	unsigned int src_width;
-	unsigned int src_height;
-	enum color_format { H264_FMT_NV12 = 0, H264_FMT_NV16 = 1 } src_format;
-
-	unsigned int profile_idc, level_idc;
-
-	enum { H264_EC_CAVLC = 0, H264_EC_CABAC = 1 } entropy_coding_mode;
-
-	unsigned int qp;
-
-	unsigned int keyframe_interval;
-};
-
 static int
-ve_config(struct h264enc_params *params)
+ve_config(int width, int height)
 {
 	struct cedar_ioctl_config config = { 0 };
 	int ret;
 
-	config.src_width = params->src_width;
-	config.src_height = params->src_height;
+	config.src_width = width;
+	config.src_height = height;
 
-	if (params->src_format == H264_FMT_NV16)
-		config.src_format = CEDAR_IOCTL_CONFIG_FORMAT_NV16;
-	else
-		config.src_format = CEDAR_IOCTL_CONFIG_FORMAT_NV12;
+	config.src_format = CEDAR_IOCTL_CONFIG_FORMAT_NV12;
 
-	config.dst_width = params->width;
-	config.dst_height = params->height;
+	config.dst_width = ALIGN(width, 16);
+	config.dst_height = ALIGN(height, 16);
 
-	config.profile = params->profile_idc;
-	config.level = params->level_idc;
-	config.qp = params->qp;
-	config.keyframe_interval = params->keyframe_interval;
+	config.profile = 77;
+	config.level = 41;
+	config.qp = 24;
+	config.keyframe_interval = 25;
 
-	if (params->entropy_coding_mode == H264_EC_CABAC)
-		config.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CABAC;
-	else
-		config.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CAVLC;
+	config.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CABAC;
+
+	if (!IS_ALIGNED(config.dst_width, 16) || !IS_ALIGNED(config.dst_height, 16) ||
+	    !IS_ALIGNED(config.src_width, 2) || !IS_ALIGNED(config.src_height, 2) ||
+	    (config.dst_width > config.src_width) ||
+	    (config.dst_height > config.src_height)) {
+		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
+		return -1;
+	}
+
+	if (config.qp == 0 || config.qp > 47) {
+		fprintf(stderr, "%s(): invalid QP.\n", __func__);
+		return -1;
+	}
+
+	if ((config.src_format != CEDAR_IOCTL_CONFIG_FORMAT_NV12) &&
+	    (config.src_format != CEDAR_IOCTL_CONFIG_FORMAT_NV16)) {
+		fprintf(stderr, "%s(): invalid color format.\n", __func__);
+		return -1;
+	}
 
 	ret = ioctl(cedar_fd, CEDAR_IOCTL_CONFIG, &config);
 	if (ret) {
@@ -142,7 +139,6 @@ read_frame(int fd, void *buffer, int size)
 int main(int argc, char **argv)
 {
 	uint32_t frame_count = 0;
-	struct h264enc_params params;
 	int width, height, input_size, ret;
 	int fd_in, fd_out;
 
@@ -180,40 +176,11 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	params.src_width = (width + 15) & ~15;
-	params.width = width;
-	params.src_height = (height + 15) & ~15;
-	params.height = height;
-	params.src_format = H264_FMT_NV12;
-	params.profile_idc = 77;
-	params.level_idc = 41;
-	params.entropy_coding_mode = H264_EC_CABAC;
-	params.qp = 24;
-	params.keyframe_interval = 25;
-
-	input_size = params.src_width * (params.src_height + params.src_height / 2);
-
-	/* check parameter validity */
-	if (!IS_ALIGNED(params.src_width, 16) || !IS_ALIGNED(params.src_height, 16) ||
-	    !IS_ALIGNED(params.width, 2) || !IS_ALIGNED(params.height, 2) ||
-	    params.width > params.src_width || params.height > params.src_height) {
-		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
-		return -1;
-	}
-
-	if (params.qp == 0 || params.qp > 47) {
-		fprintf(stderr, "%s(): invalid QP.\n", __func__);
-		return -1;
-	}
-
-	if (params.src_format != H264_FMT_NV12 && params.src_format != H264_FMT_NV16) {
-		fprintf(stderr, "%s(): invalid color format.\n", __func__);
-		return -1;
-	}
-
-	ret = ve_config(&params);
+	ret = ve_config(width, height);
 	if (ret)
 		return ret;
+
+	input_size = width * (height + (height >> 1));
 
 	while (!read_frame(fd_in, input_buffer, input_size)) {
 		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
