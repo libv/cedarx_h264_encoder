@@ -38,7 +38,4 @@ struct h264enc_params {
 	unsigned int keyframe_interval;
 };
 
-int h264enc_new(struct h264enc_params *p);
-int h264enc_encode_picture(void);
-
 #endif
