@@ -192,7 +192,7 @@ int main(int argc, char **argv)
 	uint32_t frame_count = 0;
 	struct h264enc_params params;
 	int width, height, input_size, ret;
-	int in, out;
+	int fd_in, fd_out;
 
 	if (argc != 5) {
 		printf("Usage: %s <infile> <width> <height> <outfile>\n", argv[0]);
@@ -209,19 +209,19 @@ int main(int argc, char **argv)
 	}
 
 	if (strcmp(argv[1], "-")) {
-		in = open(argv[1], O_RDONLY | O_LARGEFILE);
-		if (in == -1) {
+		fd_in = open(argv[1], O_RDONLY | O_LARGEFILE);
+		if (fd_in == -1) {
 			fprintf(stderr,
 				"%s(): Failed to open input file %s: %s\n",
 				__func__, argv[1], strerror(errno));
 			return EXIT_FAILURE;
 		}
 	} else
-		  in = 0;
+		  fd_in = 0;
 
-	out = open(argv[4], O_CREAT | O_RDWR | O_TRUNC,
+	fd_out = open(argv[4], O_CREAT | O_RDWR | O_TRUNC,
 		   S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-	if (out == -1) {
+	if (fd_out == -1) {
 		fprintf(stderr, "%s(): Failed to open output file %s\n",
 			__func__, argv[4]);
 		return EXIT_FAILURE;
@@ -246,14 +246,14 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	while (!read_frame(in, input_buffer, input_size)) {
+	while (!read_frame(fd_in, input_buffer, input_size)) {
 		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
 		if (ret < 0)
 			fprintf(stderr, "%s(): %d: CEDAR_IOCTL_ENCODE failed: %s\n",
 				__func__, frame_count, strerror(errno));
 		else {
 			printf("\rFrame %5d: %5dbytes", frame_count, ret);
-			write(out, bytestream, ret);
+			write(fd_out, bytestream, ret);
 			frame_count++;
 		}
 	}
