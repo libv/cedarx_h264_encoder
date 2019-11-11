@@ -83,6 +83,21 @@ struct sunxi_cedar {
 
 	int entropy_coding_mode;
 
+	struct cedar_reference_frame {
+		void *luma_virtual;
+		dma_addr_t luma_dma_addr;
+		size_t luma_size;
+
+		dma_addr_t chroma_dma_addr;
+		size_t chroma_size;
+
+		void *subpic_virtual;
+		dma_addr_t subpic_dma_addr;
+		size_t subpic_size;
+	} reference_frame[2];
+	struct cedar_reference_frame *reference_current;
+	struct cedar_reference_frame *reference_previous;
+
 	/* macroblock info buffer */
 	void *mb_info_virtual;
 	dma_addr_t mb_info_dma_addr;
@@ -398,6 +413,70 @@ cedar_slashdev_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+static void
+cedar_reference_frame_cleanup(struct sunxi_cedar *cedar,
+			      struct cedar_reference_frame *frame)
+{
+	if (frame->luma_virtual)
+		dma_free_coherent(cedar->dev,
+				  frame->luma_size + frame->chroma_size,
+				  frame->luma_virtual,
+				  frame->luma_dma_addr);
+	frame->luma_virtual = NULL;
+	frame->luma_dma_addr = 0;
+	frame->luma_size = 0;
+	frame->chroma_dma_addr = 0;
+	frame->chroma_size = 0;
+
+	if (frame->subpic_virtual)
+		dma_free_coherent(cedar->dev, frame->subpic_size,
+				  frame->subpic_virtual,
+				  frame->subpic_dma_addr);
+	frame->subpic_size = 0;
+	frame->subpic_virtual = NULL;
+	frame->subpic_dma_addr = 0;
+}
+
+static int
+cedar_reference_frame_init(struct sunxi_cedar *cedar,
+			   struct cedar_reference_frame *frame)
+{
+	frame->luma_size =
+		ALIGN(cedar->dst_width, 32) * ALIGN(cedar->dst_height, 64);
+	frame->chroma_size =
+		ALIGN(cedar->dst_width, 32) * ALIGN(cedar->dst_height, 128) / 2;
+
+	frame->luma_virtual =
+		dma_alloc_coherent(cedar->dev,
+				   frame->luma_size + frame->chroma_size,
+				   &frame->luma_dma_addr, GFP_KERNEL);
+	if (!frame->luma_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate luma.\n",
+			__func__);
+		goto error;
+	}
+	frame->chroma_dma_addr = frame->luma_dma_addr + frame->luma_size;
+
+	frame->subpic_size = frame->luma_size >> 1;
+	frame->subpic_virtual =
+		dma_alloc_coherent(cedar->dev, frame->subpic_size,
+				   &frame->subpic_dma_addr, GFP_KERNEL);
+	if (!frame->subpic_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate subpic.\n",
+			__func__);
+		goto error;
+	}
+
+	pr_info("%s(): %dbytes at 0x%08X, %dbytes at 0x%08X\n", __func__,
+		frame->luma_size + frame->chroma_size, frame->luma_dma_addr,
+		frame->subpic_size, frame->subpic_dma_addr);
+
+	return 0;
+ error:
+	cedar_reference_frame_cleanup(cedar, frame);
+	return -ENOMEM;
+}
+
 static int
 cedar_slashdev_release(struct inode *inode, struct file *filp)
 {
@@ -416,6 +495,11 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 	cedar_h264enc_disable(cedar);
 
 	/* cleanup */
+	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[0]);
+	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[1]);
+	cedar->reference_current = NULL;
+	cedar->reference_previous = NULL;
+
 	if (cedar->mb_info_virtual)
 		dma_free_coherent(cedar->dev, cedar->mb_info_size,
 				  cedar->mb_info_virtual,
@@ -461,6 +545,7 @@ static long
 cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 {
 	struct cedar_ioctl_config config;
+	int ret;
 
 	if (!from)
 		return -EINVAL;
@@ -490,6 +575,15 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	cedar->entropy_coding_mode = config.entropy_coding_mode;
 
+	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[0]);
+	if (ret)
+		goto error;
+	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[1]);
+	if (ret)
+		goto error;
+	cedar->reference_current = &cedar->reference_frame[0];
+	cedar->reference_previous = &cedar->reference_frame[1];
+
 	cedar->mb_info_size = ALIGN(cedar->dst_width, 16) * 8;
 	cedar->mb_info_virtual =
 		dma_alloc_coherent(cedar->dev, cedar->mb_info_size,
@@ -517,6 +611,11 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	return 0;
  error:
+	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[0]);
+	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[1]);
+	cedar->reference_current = NULL;
+	cedar->reference_previous = NULL;
+
 	if (cedar->mv_buffer_virtual)
 		dma_free_coherent(cedar->dev, cedar->mv_buffer_size,
 				  cedar->mv_buffer_virtual,
@@ -540,6 +639,7 @@ static long
 cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 {
 	struct cedar_ioctl_encode encode;
+	struct cedar_reference_frame *reference_tmp;
 	uint64_t start, stop;
 
 	if (!from)
@@ -555,6 +655,22 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	}
 
 	start = ktime_get_raw_fast_ns();
+
+	cedarenc_write(CEDAR_H264ENC_RECADDRY,
+		       cedar->reference_current->luma_dma_addr);
+	cedarenc_write(CEDAR_H264ENC_RECADDRC,
+		       cedar->reference_current->chroma_dma_addr);
+	cedarenc_write(CEDAR_H264ENC_SUBPIXADDRNEW,
+		       cedar->reference_current->subpic_dma_addr);
+
+	if (encode.frame_type == CEDAR_FRAME_TYPE_P) {
+		cedarenc_write(CEDAR_H264ENC_REFADDRY,
+			       cedar->reference_previous->luma_dma_addr);
+		cedarenc_write(CEDAR_H264ENC_REFADDRC,
+			       cedar->reference_previous->chroma_dma_addr);
+		cedarenc_write(CEDAR_H264ENC_SUBPIXADDRLAST,
+			       cedar->reference_previous->subpic_dma_addr);
+	}
 
 	cedarenc_write(CEDAR_H264ENC_MBINFO, cedar->mb_info_dma_addr);
 	cedarenc_write(CEDAR_H264ENC_MVBUFADDR,
@@ -597,6 +713,11 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 			__func__, cedar->int_status);
 		return -1;
 	}
+
+	/* swap reference_frames around to prepare for a future frame */
+	reference_tmp = cedar->reference_current;
+	cedar->reference_current = cedar->reference_previous;
+	cedar->reference_previous = reference_tmp;
 
 	stop = ktime_get_raw_fast_ns();
 

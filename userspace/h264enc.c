@@ -47,15 +47,6 @@ struct h264enc_context {
 	unsigned int bytestream_buffer_size;
 	unsigned int bytestream_length;
 
-	struct h264enc_ref_pic {
-		void *luma_buffer;
-		uint32_t luma_buffer_phys;
-		void *chroma_buffer;
-		uint32_t chroma_buffer_phys;
-		void *extra_buffer; /* unknown purpose, looks like smaller luma */
-		uint32_t extra_buffer_phys;
-	} ref_picture[2];
-
 	void *regs;
 
 	unsigned int write_sps_pps;
@@ -259,13 +250,6 @@ static void put_slice_header(struct h264enc_context *context)
 
 void h264enc_free(struct h264enc_context *context)
 {
-	int i;
-
-	for (i = 0; i < 2; i++) {
-		ve_free(context->ref_picture[i].luma_buffer);
-		ve_free(context->ref_picture[i].extra_buffer);
-	}
-
 	ve_free(context->bytestream_buffer);
 	ve_free(context->luma_buffer);
 	free(context);
@@ -275,7 +259,7 @@ struct h264enc_context *
 h264enc_new(struct h264enc_params *params)
 {
 	struct h264enc_context *context;
-	int ret, i;
+	int ret;
 
 	/* check parameter validity */
 	if (!IS_ALIGNED(params->src_width, 16) || !IS_ALIGNED(params->src_height, 16) ||
@@ -358,36 +342,9 @@ h264enc_new(struct h264enc_params *params)
 	}
 	context->bytestream_buffer_phys = ve_virt2phys(context->bytestream_buffer);
 
-	/* allocate reference picture memory */
-	unsigned int luma_size = ALIGN(context->mb_width * 16, 32) * ALIGN(context->mb_height * 16, 32);
-	unsigned int chroma_size = ALIGN(context->mb_width * 16, 32) * ALIGN(context->mb_height * 8, 32);
-	for (i = 0; i < 2; i++) {
-		context->ref_picture[i].luma_buffer = ve_malloc(luma_size + chroma_size);
-		if (!context->ref_picture[i].luma_buffer) {
-			fprintf(stderr, "%s(): failed to allocate reference "
-				"picture %d buffer.\n", __func__, i);
-			goto error;
-		}
-		context->ref_picture[i].luma_buffer_phys = ve_virt2phys(context->ref_picture[i].luma_buffer);
-		context->ref_picture[i].chroma_buffer = context->ref_picture[i].luma_buffer + luma_size;
-		context->ref_picture[i].chroma_buffer_phys = context->ref_picture[i].luma_buffer_phys + luma_size;
-
-		context->ref_picture[i].extra_buffer = ve_malloc(luma_size / 2);
-		if (!context->ref_picture[i].extra_buffer) {
-			fprintf(stderr, "%s(): failed to allocate reference "
-				"picture %d extra buffer.\n", __func__, i);
-			goto error;
-		}
-		context->ref_picture[i].extra_buffer_phys = ve_virt2phys(context->ref_picture[i].extra_buffer);
-	}
-
 	return context;
 
  error:
-	ve_free(context->ref_picture[1].luma_buffer);
-	ve_free(context->ref_picture[1].extra_buffer);
-	ve_free(context->ref_picture[0].luma_buffer);
-	ve_free(context->ref_picture[0].extra_buffer);
 	ve_free(context->bytestream_buffer);
 	ve_free(context->luma_buffer);
 	h264enc_free(context);
@@ -440,20 +397,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	/* set input buffer */
 	h264isp_write(H264ISP_INPUT_Y_ADDR, context->luma_buffer_phys);
 	h264isp_write(H264ISP_INPUT_C0_ADDR, context->chroma_buffer_phys);
-
-	/* set reconstruction buffers */
-	struct h264enc_ref_pic *ref_pic = &context->ref_picture[context->current_frame_num % 2];
-	h264enc_write(H264ENC_RECADDRY, ref_pic->luma_buffer_phys);
-	h264enc_write(H264ENC_RECADDRC, ref_pic->chroma_buffer_phys);
-	h264enc_write(H264ENC_SUBPIXADDRNEW, ref_pic->extra_buffer_phys);
-
-	/* set reference buffers */
-	if (context->current_slice_type != SLICE_I) {
-		ref_pic = &context->ref_picture[(context->current_frame_num + 1) % 2];
-		h264enc_write(H264ENC_REFADDRY, ref_pic->luma_buffer_phys);
-		h264enc_write(H264ENC_REFADDRC, ref_pic->chroma_buffer_phys);
-		h264enc_write(H264ENC_SUBPIXADDRLAST, ref_pic->extra_buffer_phys);
-	}
 
 	if (context->current_slice_type == SLICE_P)
 		ret = ve_encode(true);
