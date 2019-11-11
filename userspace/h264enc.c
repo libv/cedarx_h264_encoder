@@ -209,42 +209,6 @@ static void put_pic_parameter_set(struct h264enc_context *context)
 	put_rbsp_trailing_bits(context);
 }
 
-static void put_slice_header(struct h264enc_context *context)
-{
-	if (context->current_slice_type == SLICE_I)
-		put_start_code(context, 3, 5);
-	else
-		put_start_code(context, 2, 1);
-
-	put_ue(context, /* first_mb_in_slice = */ 0);
-	put_ue(context, context->current_slice_type);
-	put_ue(context, /* pic_parameter_set_id = */ 0);
-
-	put_bits(context, context->current_frame_num & 0xf, 4);
-
-	if (context->current_slice_type == SLICE_I)
-		put_ue(context, /* idr_pic_id = */ 0);
-
-	if (context->current_slice_type == SLICE_P) {
-		put_bits(context, /* num_ref_idx_active_override_flag = */ 0, 1);
-		put_bits(context, /* ref_pic_list_modification_flag_l0 = */ 0, 1);
-		put_bits(context, /* adaptive_ref_pic_marking_mode_flag = */ 0, 1);
-		if (context->entropy_coding_mode_flag)
-			put_ue(context, /* cabac_init_idc = */ 0);
-	}
-
-	if (context->current_slice_type == SLICE_I) {
-		put_bits(context, /* no_output_of_prior_pics_flag = */ 0, 1);
-		put_bits(context, /* long_term_reference_flag = */ 0, 1);
-	}
-
-	put_se(context, /* slice_qp_delta = */ 0);
-
-	put_ue(context, /* disable_deblocking_filter_idc = */ 0);
-	put_se(context, /* slice_alpha_c0_offset_div2 = */ 0);
-	put_se(context, /* slice_beta_offset_div2 = */ 0);
-}
-
 void h264enc_free(struct h264enc_context *context)
 {
 	free(context);
@@ -331,7 +295,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		put_pic_parameter_set(context);
 		context->write_sps_pps = 0;
 	}
-	put_slice_header(context);
 
 	if (context->current_slice_type == SLICE_P)
 		ret = ve_encode(true);

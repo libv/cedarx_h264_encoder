@@ -85,9 +85,9 @@ struct sunxi_cedar {
 	int level;
 	int qp;
 	int keyframe_interval;
-	int frame_count;
+	int frame_p_count;
 
-	int entropy_coding_mode;
+	bool entropy_coding_mode_cabac;
 
 	size_t input_size;
 	void *input_luma_virtual;
@@ -165,6 +165,43 @@ static void __maybe_unused cedar_io_mask(struct sunxi_cedar *cedar,
 #define cedarisp_mask(a, v, m) \
 	cedar_io_mask(cedar, CEDAR_H264ISP_BASE + (a), (v), (m))
 
+static void
+cedar_bytestream_write(struct sunxi_cedar *cedar,
+		       uint32_t data, int size)
+{
+	int i;
+
+#define STATUS_WAIT_COUNT 10000
+	for (i = 0; i < STATUS_WAIT_COUNT; i++) {
+		uint32_t status = cedarenc_read(CEDAR_H264ENC_INT_STATUS);
+
+		if ((status & 0x200) == 0x200)
+			break;
+	}
+
+	if (i == STATUS_WAIT_COUNT)
+		dev_err(cedar->dev, "%s(): bytestream status not cleared.\n",
+			__func__);
+
+	cedarenc_write(CEDAR_H264ENC_PUTBITSDATA, data);
+	cedarenc_write(CEDAR_H264ENC_STARTTRIG, 0x01 | ((size & 0x1f) << 8));
+}
+
+static void
+cedar_bytestream_expgolomb(struct sunxi_cedar *cedar, uint32_t data)
+{
+	data++;
+	cedar_bytestream_write(cedar, data,
+			       (32 - __builtin_clz(data)) * 2 - 1);
+}
+
+static void
+cedar_bytestream_expgolomb_signed(struct sunxi_cedar *cedar, int32_t data)
+{
+	data = (2 * data) - 1;
+	data ^= (data >> 31);
+	cedar_bytestream_expgolomb(cedar, data);
+}
 
 static irqreturn_t cedar_isr(int irq, void *dev_id)
 {
@@ -664,9 +701,12 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 	cedar->level = config.level;
 	cedar->qp = config.qp;
 	cedar->keyframe_interval = config.keyframe_interval;
-	cedar->frame_count = 0;
+	cedar->frame_p_count = 0;
 
-	cedar->entropy_coding_mode = config.entropy_coding_mode;
+	if (config.entropy_coding_mode == CEDAR_IOCTL_ENTROPY_CODING_CABAC)
+		cedar->entropy_coding_mode_cabac = true;
+	else
+		cedar->entropy_coding_mode_cabac = false;
 
 	ret = cedar_buffers_init(cedar);
 	if (ret)
@@ -684,6 +724,69 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 		return -EFAULT;
 
 	return 0;
+}
+
+static void
+cedar_bytestream_nal_startcode(struct sunxi_cedar *cedar,
+			       uint8_t ref_idc, uint8_t type)
+{
+	/* disable emulation_prevention_three_byte */
+	cedarenc_mask(CEDAR_H264ENC_PARA0, 0x80000000, 0x80000000);
+
+	cedar_bytestream_write(cedar, 0, 24);
+	cedar_bytestream_write(cedar,
+			       0x100 | ((ref_idc & 0x03) << 5) | (type & 0x1F),
+			       16);
+
+	cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x80000000);
+}
+
+static void
+cedar_bytestream_sliceheader(struct sunxi_cedar *cedar, bool frame_i)
+{
+	if (frame_i)
+		cedar_bytestream_nal_startcode(cedar, 3, 5);
+	else
+		cedar_bytestream_nal_startcode(cedar, 2, 1);
+
+	/* first_mb_in_slice */
+	cedar_bytestream_expgolomb(cedar, 0);
+	if (frame_i)
+		cedar_bytestream_expgolomb(cedar, 2);
+	else
+		cedar_bytestream_expgolomb(cedar, 0); /* P frame */
+	/* pic_parameter_set_id */
+	cedar_bytestream_expgolomb(cedar, 0);
+
+	cedar_bytestream_write(cedar, cedar->frame_p_count & 0x0F, 4);
+
+	if (frame_i) {
+		/* idr_pic_id */
+		cedar_bytestream_expgolomb(cedar, 0);
+		/* no_output_of_prior_pics_flag */
+		cedar_bytestream_write(cedar, 0, 1);
+		/* long_term_reference_flag */
+		cedar_bytestream_write(cedar, 0, 1);
+	} else { /* P frame */
+		/* num_ref_idx_active_override_flag */
+		cedar_bytestream_write(cedar, 0, 1);
+		/* ref_pic_list_modification_flag_l0 */
+		cedar_bytestream_write(cedar, 0, 1);
+		 /* adaptive_ref_pic_marking_mode_flag */
+		cedar_bytestream_write(cedar, 0, 1);
+		if (cedar->entropy_coding_mode_cabac) /* cabac_init_idc = */
+			cedar_bytestream_expgolomb(cedar, 0);
+	}
+
+	/* slice_qp_delta */
+	cedar_bytestream_expgolomb_signed(cedar, 0);
+
+	/* disable_deblocking_filter_idc */
+	cedar_bytestream_expgolomb(cedar, 0);
+	/* slice_alpha_c0_offset_div2 */
+	cedar_bytestream_expgolomb_signed(cedar, 0);
+	/* slice_beta_offset_div2 */
+	cedar_bytestream_expgolomb_signed(cedar, 0);
 }
 
 static long
@@ -706,6 +809,14 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	}
 
 	start = ktime_get_raw_fast_ns();
+
+	if (encode.frame_type == CEDAR_FRAME_TYPE_I)
+		cedar->frame_p_count = 0;
+
+	if (encode.frame_type == CEDAR_FRAME_TYPE_P)
+		cedar_bytestream_sliceheader(cedar, false);
+	else
+		cedar_bytestream_sliceheader(cedar, true);
 
 	cedarisp_write(CEDAR_H264ISP_STRIDE_CTRL,
 		       cedar->src_stride_mb << 16);
@@ -739,7 +850,7 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	cedarenc_write(CEDAR_H264ENC_MVBUFADDR,
 		       cedar->mv_buffer_dma_addr);
 
-	if (cedar->entropy_coding_mode)
+	if (cedar->entropy_coding_mode_cabac)
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0x100, 0x100);
 	else
 		cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x100);
@@ -776,6 +887,8 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 			__func__, cedar->int_status);
 		return -1;
 	}
+
+	cedar->frame_p_count++;
 
 	/* swap reference_frames around to prepare for a future frame */
 	reference_tmp = cedar->reference_current;
