@@ -26,10 +26,6 @@ int ve_open(void);
 void ve_close(void);
 void *ve_mmio_get(void);
 
-void *ve_malloc(int size);
-void ve_free(void *ptr);
-uint32_t ve_virt2phys(void *ptr);
-
 struct h264enc_params;
 int ve_config(struct h264enc_params *params);
 int ve_encode(bool frame_type_p);

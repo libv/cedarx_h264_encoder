@@ -8,8 +8,6 @@ enum cedar_ioctl_cmd {
 };
 
 struct cedarv_env_infomation {
-	unsigned int phymem_start;
-	int phymem_total_size;
 	unsigned int address_macc;
 };
 

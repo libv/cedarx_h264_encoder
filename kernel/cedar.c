@@ -61,10 +61,6 @@ struct sunxi_cedar {
 	void __iomem *mmio;
 	struct resource *mmio_resource;
 
-	dma_addr_t mem_address;
-	size_t mem_size;
-	void *mem_virtual;
-
 	bool interrupt_received;
 	wait_queue_head_t wait_queue;
 	uint32_t int_status;
@@ -260,26 +256,12 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 		goto err_sram;
 	}
 
-	cedar->mem_size = 16 << 20;
-	cedar->mem_virtual =
-		dma_alloc_coherent(cedar->dev, cedar->mem_size,
-				   &cedar->mem_address, GFP_KERNEL);
-	if (!cedar->mem_virtual) {
-		dev_err(cedar->dev, "%s: dma_alloc_coherent() failed.\n",
-			__func__);
-		ret = -ENOMEM;
-		goto err_sram;
-	}
-
-	dev_info(cedar->dev, "%s: memory: 0x%08X (0x%02X)\n", __func__,
-		 cedar->mem_address, cedar->mem_size);
-
 	irq = platform_get_irq(platform_dev, 0);
 	if (irq < 0) {
 		dev_err(cedar->dev, "%s(): platform_get_irq() failed: %d.\n",
 			__func__, -irq);
 		ret = -irq;
-		goto err_cma;
+		goto err_sram;
 	}
 
 	ret = devm_request_irq(cedar->dev, irq, cedar_isr, 0,
@@ -287,21 +269,21 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 	if (ret) {
 		dev_err(cedar->dev, "%s(): devm_request_irq() failed: %d.\n",
 			__func__, ret);
-		goto err_cma;
+		goto err_sram;
 	}
 
 	ret = clk_set_rate(cedar->mod_clk, CEDRUS_CLOCK_RATE_DEFAULT);
 	if (ret) {
 		dev_err(cedar->dev, "Failed to set clock rate\n");
 
-		goto err_cma;
+		goto err_sram;
 	}
 
 	ret = clk_prepare_enable(cedar->ahb_clk);
 	if (ret) {
 		dev_err(cedar->dev, "Failed to enable AHB clock\n");
 
-		goto err_cma;
+		goto err_sram;
 	}
 
 	ret = clk_prepare_enable(cedar->mod_clk);
@@ -333,9 +315,6 @@ static int cedar_resources_get(struct sunxi_cedar *cedar,
 	clk_disable_unprepare(cedar->mod_clk);
  err_ahb_clk:
 	clk_disable_unprepare(cedar->ahb_clk);
- err_cma:
-	dma_free_coherent(cedar->dev, cedar->mem_size,
-			  cedar->mem_virtual, cedar->mem_address);
  err_sram:
 	sunxi_sram_release(cedar->dev);
  err_mem:
@@ -351,9 +330,6 @@ static void cedar_resources_remove(struct sunxi_cedar *cedar)
 	clk_disable_unprepare(cedar->ram_clk);
 	clk_disable_unprepare(cedar->mod_clk);
 	clk_disable_unprepare(cedar->ahb_clk);
-
-	dma_free_coherent(cedar->dev, cedar->mem_size,
-			  cedar->mem_virtual, cedar->mem_address);
 
 	sunxi_sram_release(cedar->dev);
 
@@ -642,8 +618,6 @@ static long
 cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
 {
 	struct cedarv_env_infomation info = {
-		.phymem_start = cedar->mem_address,
-		.phymem_total_size = cedar->mem_size,
 		.address_macc = cedar->mmio_resource->start,
 	};
 
@@ -905,9 +879,6 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	if (address == cedar->mmio_resource->start)
 		return cedar_slashdev_mmap_io(cedar, vma);
-	else if ((address >= cedar->mem_address) &&
-		 ((address + size) <= (cedar->mem_address + cedar->mem_size)))
-		return cedar_slashdev_mmap_mem(cedar, vma);
 	else if ((address = cedar->input_luma_dma_addr) &&
 		 (size == cedar->input_size))
 		return cedar_slashdev_mmap_mem(cedar, vma);
