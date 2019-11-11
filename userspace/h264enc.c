@@ -114,13 +114,6 @@ static void put_ue(struct h264enc_context *context, uint32_t x)
 	put_bits(context, x, (32 - __builtin_clz(x)) * 2 - 1);
 }
 
-static void put_se(struct h264enc_context *context, int x)
-{
-	x = 2 * x - 1;
-	x ^= (x >> 31);
-	put_ue(context, x);
-}
-
 static void put_start_code(struct h264enc_context *context,
 			   unsigned int nal_ref_idc, unsigned int nal_unit_type)
 {
@@ -176,35 +169,6 @@ static void put_seq_parameter_set(struct h264enc_context *context)
 	}
 
 	put_bits(context, /* vui_parameters_present_flag = */ 0, 1);
-
-	put_rbsp_trailing_bits(context);
-}
-
-static void put_pic_parameter_set(struct h264enc_context *context)
-{
-	put_start_code(context, 3, 8);
-
-	put_ue(context, /* pic_parameter_set_id = */ 0);
-	put_ue(context, /* seq_parameter_set_id = */ 0);
-
-	put_bits(context, context->entropy_coding_mode_flag, 1);
-
-	put_bits(context, /* bottom_field_pic_order_in_frame_present_flag = */ 0, 1);
-	put_ue(context, /* num_slice_groups_minus1 = */ 0);
-
-	put_ue(context, /* num_ref_idx_l0_default_active_minus1 = */ 0);
-	put_ue(context, /* num_ref_idx_l1_default_active_minus1 = */ 0);
-
-	put_bits(context, /* weighted_pred_flag = */ 0, 1);
-	put_bits(context, /* weighted_bipred_idc = */ 0, 2);
-
-	put_se(context, (int)context->pic_init_qp - 26);
-	put_se(context, (int)context->pic_init_qp - 26);
-	put_se(context, /* chroma_qp_index_offset = */ 4);
-
-	put_bits(context, /* deblocking_filter_control_present_flag = */ 1, 1);
-	put_bits(context, /* constrained_intra_pred_flag = */ 0, 1);
-	put_bits(context, /* redundant_pic_cnt_present_flag = */ 0, 1);
 
 	put_rbsp_trailing_bits(context);
 }
@@ -292,7 +256,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 	/* write headers */
 	if (context->write_sps_pps) {
 		put_seq_parameter_set(context);
-		put_pic_parameter_set(context);
 		context->write_sps_pps = 0;
 	}
 

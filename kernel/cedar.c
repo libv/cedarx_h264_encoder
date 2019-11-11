@@ -86,6 +86,7 @@ struct sunxi_cedar {
 	int qp;
 	int keyframe_interval;
 	int frame_p_count;
+	uint32_t frame_count;
 
 	bool entropy_coding_mode_cabac;
 
@@ -702,6 +703,7 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 	cedar->qp = config.qp;
 	cedar->keyframe_interval = config.keyframe_interval;
 	cedar->frame_p_count = 0;
+	cedar->frame_count = 0;
 
 	if (config.entropy_coding_mode == CEDAR_IOCTL_ENTROPY_CODING_CABAC)
 		cedar->entropy_coding_mode_cabac = true;
@@ -739,6 +741,60 @@ cedar_bytestream_nal_startcode(struct sunxi_cedar *cedar,
 			       16);
 
 	cedarenc_mask(CEDAR_H264ENC_PARA0, 0, 0x80000000);
+}
+
+static void
+cedar_bytestream_rbsp_trailing_bits(struct sunxi_cedar *cedar)
+{
+	uint32_t len = cedarenc_read(CEDAR_H264ENC_STMLEN);
+	int pad = 8 - ((len + 1) & 0x7);
+
+	cedar_bytestream_write(cedar, 1 << pad, pad + 1);
+}
+
+static void
+cedar_bytestream_picture_parameter_set(struct sunxi_cedar *cedar)
+{
+	cedar_bytestream_nal_startcode(cedar, 3, 8);
+
+	/* pic_parameter_set_id */
+	cedar_bytestream_expgolomb(cedar, 0);
+	/* seq_parameter_set_id */
+	cedar_bytestream_expgolomb(cedar, 0);
+
+	if (cedar->entropy_coding_mode_cabac)
+		cedar_bytestream_write(cedar, 1, 1);
+	else
+		cedar_bytestream_write(cedar, 0, 1);
+
+	/* bottom_field_pic_order_in_frame_present_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+	 /* num_slice_groups_minus1 */
+	cedar_bytestream_expgolomb(cedar, 0);
+
+	/* num_ref_idx_l0_default_active_minus1 */
+	cedar_bytestream_expgolomb(cedar, 0);
+	/* num_ref_idx_l1_default_active_minus1 */
+	cedar_bytestream_expgolomb(cedar, 0);
+
+	/* weighted_pred_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+	/* weighted_bipred_idc */
+	cedar_bytestream_write(cedar, 0, 2);
+
+	cedar_bytestream_expgolomb_signed(cedar, cedar->qp - 26);
+	cedar_bytestream_expgolomb_signed(cedar, cedar->qp - 26);
+	/* chroma_qp_index_offset */
+	cedar_bytestream_expgolomb_signed(cedar, 4);
+
+	/* deblocking_filter_control_present_flag */
+	cedar_bytestream_write(cedar, 1, 1);
+	/* constrained_intra_pred_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+	/* redundant_pic_cnt_present_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+
+	cedar_bytestream_rbsp_trailing_bits(cedar);
 }
 
 static void
@@ -812,6 +868,10 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 
 	if (encode.frame_type == CEDAR_FRAME_TYPE_I)
 		cedar->frame_p_count = 0;
+
+	if (!cedar->frame_count) {
+		cedar_bytestream_picture_parameter_set(cedar);
+	}
 
 	if (encode.frame_type == CEDAR_FRAME_TYPE_P)
 		cedar_bytestream_sliceheader(cedar, false);
@@ -889,6 +949,7 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	}
 
 	cedar->frame_p_count++;
+	cedar->frame_count++;
 
 	/* swap reference_frames around to prepare for a future frame */
 	reference_tmp = cedar->reference_current;
