@@ -38,10 +38,10 @@
 
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
-static void *input_buffer_virtual;
+static void *input_buffer;
 static int input_buffer_size;
 
-static void *bytestream_virtual;
+static void *bytestream;
 static int bytestream_size;
 
 static int cedar_fd = -1;
@@ -116,44 +116,30 @@ int ve_config(struct h264enc_params *params)
 	}
 
 	input_buffer_size = config.input_size;
-	input_buffer_virtual =
-		mmap(NULL, input_buffer_size, PROT_READ | PROT_WRITE,
-		     MAP_SHARED, cedar_fd, config.input_dma_addr);
-	if (input_buffer_virtual == MAP_FAILED) {
+	input_buffer = mmap(NULL, input_buffer_size, PROT_READ | PROT_WRITE,
+			    MAP_SHARED, cedar_fd, config.input_dma_addr);
+	if (input_buffer == MAP_FAILED) {
 		fprintf(stderr, "%s(): failed to mmap input buffer: %s.\n",
 			__func__, strerror(errno));
 		return -ENOMEM;
 	}
 
 	printf("Input: %dbytes at 0x%08X -> %p\n", input_buffer_size,
-	       config.input_dma_addr, input_buffer_virtual);
+	       config.input_dma_addr, input_buffer);
 
 	bytestream_size = config.bytestream_size;
-	bytestream_virtual =
-		mmap(NULL, bytestream_size, PROT_READ | PROT_WRITE,
-		     MAP_SHARED, cedar_fd, config.bytestream_dma_addr);
-	if (bytestream_virtual == MAP_FAILED) {
+	bytestream = mmap(NULL, bytestream_size, PROT_READ | PROT_WRITE,
+			  MAP_SHARED, cedar_fd, config.bytestream_dma_addr);
+	if (bytestream == MAP_FAILED) {
 		fprintf(stderr, "%s(): failed to mmap input buffer: %s.\n",
 			__func__, strerror(errno));
 		return -ENOMEM;
 	}
 
 	printf("Bytestream: %dbytes at 0x%08X -> %p\n", bytestream_size,
-	       config.bytestream_dma_addr, bytestream_virtual);
+	       config.bytestream_dma_addr, bytestream);
 
 	return 0;
-}
-
-void *
-ve_input_buffer_virtual_get(void)
-{
-	return input_buffer_virtual;
-}
-
-void *
-ve_bytestream_virtual_get(void)
-{
-	return bytestream_virtual;
 }
 
 static int
@@ -205,7 +191,6 @@ int main(int argc, char **argv)
 {
 	uint32_t frame_count = 0;
 	struct h264enc_params params;
-	void *input_buf, *output_buf;
 	int width, height, input_size, ret;
 	int in, out;
 
@@ -261,17 +246,14 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	input_buf = ve_input_buffer_virtual_get();
-	output_buf = ve_bytestream_virtual_get();
-
-	while (!read_frame(in, input_buf, input_size)) {
+	while (!read_frame(in, input_buffer, input_size)) {
 		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
 		if (ret < 0)
 			fprintf(stderr, "%s(): %d: CEDAR_IOCTL_ENCODE failed: %s\n",
 				__func__, frame_count, strerror(errno));
 		else {
 			printf("\rFrame %5d: %5dbytes", frame_count, ret);
-			write(out, output_buf, ret);
+			write(out, bytestream, ret);
 			frame_count++;
 		}
 	}
