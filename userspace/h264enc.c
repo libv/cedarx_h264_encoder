@@ -35,7 +35,6 @@ struct h264enc_context {
 	unsigned int mb_width, mb_height, mb_stride;
 	unsigned int crop_right, crop_bottom;
 
-	uint8_t *bytestream_buffer;
 	uint32_t bytestream_buffer_phys;
 	int bytestream_buffer_size;
 
@@ -234,7 +233,6 @@ static void put_slice_header(struct h264enc_context *context)
 
 void h264enc_free(struct h264enc_context *context)
 {
-	ve_free(context->bytestream_buffer);
 	free(context);
 }
 
@@ -298,16 +296,6 @@ h264enc_new(struct h264enc_params *params)
 		ve_bytestream_dma_addr_get(&context->bytestream_buffer_size);
 
 	return context;
-}
-
-void *h264enc_get_input_buffer(struct h264enc_context *context)
-{
-	return ve_input_buffer_virtual_get();
-}
-
-void *h264enc_get_bytestream_buffer(struct h264enc_context *context)
-{
-	return ve_bytestream_virtual_get();
 }
 
 int h264enc_encode_picture(struct h264enc_context *context)

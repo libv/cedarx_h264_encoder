@@ -107,8 +107,8 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	output_buf = h264enc_get_bytestream_buffer(context);
-	input_buf = h264enc_get_input_buffer(context);
+	input_buf = ve_input_buffer_virtual_get();
+	output_buf = ve_bytestream_virtual_get();
 
 	while (!read_frame(in, input_buf, input_size)) {
 		ret = h264enc_encode_picture(context);
