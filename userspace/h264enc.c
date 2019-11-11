@@ -38,7 +38,6 @@ struct h264enc_context {
 	uint8_t *bytestream_buffer;
 	uint32_t bytestream_buffer_phys;
 	unsigned int bytestream_buffer_size;
-	unsigned int bytestream_length;
 
 	void *regs;
 
@@ -323,11 +322,6 @@ void *h264enc_get_bytestream_buffer(struct h264enc_context *context)
 	return context->bytestream_buffer;
 }
 
-unsigned int h264enc_get_bytestream_length(struct h264enc_context *context)
-{
-	return context->bytestream_length;
-}
-
 int h264enc_encode_picture(struct h264enc_context *context)
 {
 	int ret;
@@ -353,10 +347,6 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		ret = ve_encode(true);
 	else
 		ret = ve_encode(false);
-	if (ret >= 0)
-		context->bytestream_length = ret;
-
-	printf("\rFrame %5d: %dbytes", context->frame_count, context->bytestream_length);
 
 	/* next frame */
 	context->current_frame_num++;
@@ -368,7 +358,8 @@ int h264enc_encode_picture(struct h264enc_context *context)
 		fprintf(stderr, "%s(): %d: encoding failed: %d\n",
 			__func__, context->frame_count - 1, ret);
 		return ret;
-	}
+	} else
+		printf("\rFrame %5d: %dbytes", context->frame_count, ret);
 
-	return 0;
+	return ret;
 }

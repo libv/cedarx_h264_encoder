@@ -111,10 +111,11 @@ int main(int argc, char **argv)
 	input_buf = h264enc_get_input_buffer(context);
 
 	while (!read_frame(in, input_buf, input_size)) {
-		if (!h264enc_encode_picture(context))
-			write(out, output_buf, h264enc_get_bytestream_length(context));
-		else
+		ret = h264enc_encode_picture(context);
+		if (ret <= 0)
 			fprintf(stderr, "%s: encoding error.\n", __func__);
+		else
+			write(out, output_buf, ret);
 	}
 
 	h264enc_free(context);

@@ -44,7 +44,6 @@ struct h264enc_context *h264enc_new(struct h264enc_params *p);
 void h264enc_free(struct h264enc_context *context);
 void *h264enc_get_input_buffer(struct h264enc_context *context);
 void *h264enc_get_bytestream_buffer(struct h264enc_context *context);
-unsigned int h264enc_get_bytestream_length(struct h264enc_context *context);
 int h264enc_encode_picture(struct h264enc_context *context);
 
 #endif
