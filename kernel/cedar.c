@@ -80,6 +80,8 @@ struct sunxi_cedar {
 	int dst_height;
 	int dst_width_mb;
 	int dst_height_mb;
+	int dst_width_crop;
+	int dst_height_crop;
 
 	int profile;
 	int level;
@@ -695,8 +697,16 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	cedar->dst_width = config.dst_width;
 	cedar->dst_height = config.dst_height;
-	cedar->dst_width_mb = ALIGN(cedar->dst_width, 16) / 16;
-	cedar->dst_height_mb = ALIGN(cedar->dst_height, 16) / 16;
+	cedar->dst_width_mb = ALIGN(cedar->dst_width, 16) >> 4;
+	cedar->dst_height_mb = ALIGN(cedar->dst_height, 16) >> 4;
+	if (config.dst_width & 0x0F)
+		cedar->dst_width_crop = 0x10 - (config.dst_width & 0x0F);
+	else
+		cedar->dst_width_crop = 0;
+	if (config.dst_height & 0x0F)
+		cedar->dst_height_crop = 0x10 - (config.dst_height & 0x0F);
+	else
+		cedar->dst_height_crop = 0;
 
 	cedar->profile = config.profile;
 	cedar->level = config.level;
@@ -750,6 +760,53 @@ cedar_bytestream_rbsp_trailing_bits(struct sunxi_cedar *cedar)
 	int pad = 8 - ((len + 1) & 0x7);
 
 	cedar_bytestream_write(cedar, 1 << pad, pad + 1);
+}
+
+static void
+cedar_bytestream_sequence_parameter_set(struct sunxi_cedar *cedar)
+{
+	cedar_bytestream_nal_startcode(cedar, 3, 7);
+
+	cedar_bytestream_write(cedar, cedar->profile, 8);
+	/* constraints */
+	cedar_bytestream_write(cedar, 0, 8);
+	cedar_bytestream_write(cedar, cedar->level, 8);
+
+	/* seq_parameter_set_id */
+	cedar_bytestream_expgolomb(cedar, 0);
+
+	/* log2_max_frame_num_minus4 */
+	cedar_bytestream_expgolomb(cedar, 0);
+	/* pic_order_cnt_type */
+	cedar_bytestream_expgolomb(cedar, 2);
+
+	/* max_num_ref_frames */
+	cedar_bytestream_expgolomb(cedar, 1);
+	/* gaps_in_frame_num_value_allowed_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+
+	cedar_bytestream_expgolomb(cedar, cedar->dst_width_mb - 1);
+	cedar_bytestream_expgolomb(cedar, cedar->dst_height_mb - 1);
+
+	/* frame_mbs_only_flag = */
+	cedar_bytestream_write(cedar, 1, 1);
+
+	/* direct_8x8_inference_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+
+	if (cedar->dst_width_crop || cedar->dst_height_crop) {
+		cedar_bytestream_write(cedar, 1, 1);
+		cedar_bytestream_expgolomb(cedar, 0);
+		cedar_bytestream_expgolomb(cedar, cedar->dst_width_crop);
+		cedar_bytestream_expgolomb(cedar, 0);
+		cedar_bytestream_expgolomb(cedar, cedar->dst_height_crop);
+	} else
+		cedar_bytestream_write(cedar, 0, 1);
+
+	/* vui_parameters_present_flag */
+	cedar_bytestream_write(cedar, 0, 1);
+
+	cedar_bytestream_rbsp_trailing_bits(cedar);
 }
 
 static void
@@ -870,6 +927,7 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 		cedar->frame_p_count = 0;
 
 	if (!cedar->frame_count) {
+		cedar_bytestream_sequence_parameter_set(cedar);
 		cedar_bytestream_picture_parameter_set(cedar);
 	}
 
