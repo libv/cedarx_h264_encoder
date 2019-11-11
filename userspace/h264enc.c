@@ -28,19 +28,11 @@
 
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
-struct h264enc_context {
-	unsigned int frame_count;
-};
+static uint32_t frame_count;
 
-void h264enc_free(struct h264enc_context *context)
-{
-	free(context);
-}
-
-struct h264enc_context *
+int
 h264enc_new(struct h264enc_params *params)
 {
-	struct h264enc_context *context;
 	int ret;
 
 	/* check parameter validity */
@@ -48,47 +40,39 @@ h264enc_new(struct h264enc_params *params)
 	    !IS_ALIGNED(params->width, 2) || !IS_ALIGNED(params->height, 2) ||
 	    params->width > params->src_width || params->height > params->src_height) {
 		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
-		return NULL;
+		return -1;
 	}
 
 	if (params->qp == 0 || params->qp > 47) {
 		fprintf(stderr, "%s(): invalid QP.\n", __func__);
-		return NULL;
+		return -1;
 	}
 
 	if (params->src_format != H264_FMT_NV12 && params->src_format != H264_FMT_NV16) {
 		fprintf(stderr, "%s(): invalid color format.\n", __func__);
-		return NULL;
+		return -1;
 	}
 
 	ret = ve_config(params);
 	if (ret)
-		return NULL;
+		return ret;
 
-	/* allocate memory for h264enc structure */
-	context = calloc(1, sizeof(struct h264enc_context));
-	if (context == NULL) {
-		fprintf(stderr, "%s(): can't allocate h264enc context.\n",
-			__func__);
-		return NULL;
-	}
-
-	return context;
+	return 0;
 }
 
-int h264enc_encode_picture(struct h264enc_context *context)
+int h264enc_encode_picture(void)
 {
 	int ret;
 
 	ret = ve_encode();
 	if (ret < 0) {
 		fprintf(stderr, "%s(): %d: encoding failed: %d\n",
-			__func__, context->frame_count, ret);
+			__func__, frame_count, ret);
 		return ret;
 	} else
-		printf("\rFrame %5d: %dbytes", context->frame_count, ret);
+		printf("\rFrame %5d: %dbytes", frame_count, ret);
 
-	context->frame_count++;
+	frame_count++;
 
 	return ret;
 }

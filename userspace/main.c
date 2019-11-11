@@ -50,7 +50,6 @@ static int read_frame(int fd, void *buffer, int size)
 int main(int argc, char **argv)
 {
 	struct h264enc_params params;
-	struct h264enc_context *context;
 	void *input_buf, *output_buf;
 	int width, height, input_size, ret;
 	int in, out;
@@ -101,8 +100,8 @@ int main(int argc, char **argv)
 
 	input_size = params.src_width * (params.src_height + params.src_height / 2);
 
-	context = h264enc_new(&params);
-	if (!context) {
+	ret = h264enc_new(&params);
+	if (ret) {
 		fprintf(stderr, "%s: could not create context\n", __func__);
 		return EXIT_FAILURE;
 	}
@@ -111,14 +110,12 @@ int main(int argc, char **argv)
 	output_buf = ve_bytestream_virtual_get();
 
 	while (!read_frame(in, input_buf, input_size)) {
-		ret = h264enc_encode_picture(context);
+		ret = h264enc_encode_picture();
 		if (ret <= 0)
 			fprintf(stderr, "%s: encoding error.\n", __func__);
 		else
 			write(out, output_buf, ret);
 	}
-
-	h264enc_free(context);
 
 	return EXIT_SUCCESS;
 }
