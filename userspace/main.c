@@ -26,9 +26,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/stat.h>
 #include <errno.h>
-#include <stdbool.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
@@ -139,12 +137,13 @@ read_frame(int fd, void *buffer, int size)
 int main(int argc, char **argv)
 {
 	uint32_t frame_count = 0;
-	int width, height, input_size, ret;
+	int width, height;
 	int fd_in, fd_out;
+	int size, ret;
 
 	if (argc != 5) {
 		printf("Usage: %s <infile> <width> <height> <outfile>\n", argv[0]);
-		return EXIT_FAILURE;
+		return -1;
 	}
 
 	width = atoi(argv[2]);
@@ -152,37 +151,36 @@ int main(int argc, char **argv)
 
 	cedar_fd = open(DEVICE, O_RDWR);
 	if (cedar_fd == -1) {
-		fprintf(stderr, "%s(): failed to open %s: %s\n",
-			__func__, DEVICE, strerror(errno));
+		fprintf(stderr, "%s(): failed to open %s: %s\n", __func__, DEVICE,
+			strerror(errno));
 		return -1;
 	}
 
 	if (strcmp(argv[1], "-")) {
 		fd_in = open(argv[1], O_RDONLY | O_LARGEFILE);
 		if (fd_in == -1) {
-			fprintf(stderr,
-				"%s(): Failed to open input file %s: %s\n",
+			fprintf(stderr, "%s(): Failed to open input file %s: %s\n",
 				__func__, argv[1], strerror(errno));
-			return EXIT_FAILURE;
+			return -1;
 		}
 	} else
 		  fd_in = 0;
 
 	fd_out = open(argv[4], O_CREAT | O_RDWR | O_TRUNC,
-		   S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+		      S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	if (fd_out == -1) {
 		fprintf(stderr, "%s(): Failed to open output file %s\n",
 			__func__, argv[4]);
-		return EXIT_FAILURE;
+		return -1;
 	}
 
 	ret = ve_config(width, height);
 	if (ret)
 		return ret;
 
-	input_size = width * (height + (height >> 1));
+	size = width * (height + (height >> 1));
 
-	while (!read_frame(fd_in, input_buffer, input_size)) {
+	while (!read_frame(fd_in, input_buffer, size)) {
 		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
 		if (ret < 0)
 			fprintf(stderr, "%s(): %d: CEDAR_IOCTL_ENCODE failed: %s\n",
@@ -194,5 +192,5 @@ int main(int argc, char **argv)
 		}
 	}
 
-	return EXIT_SUCCESS;
+	return 0;
 }
