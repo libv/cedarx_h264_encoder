@@ -32,7 +32,6 @@
 #include "ve.h"
 #include "h264enc.h"
 #include "cedar_ioctl.h"
-#include "ve_regs.h"
 
 #define DEVICE "/dev/cedar_dev"
 
@@ -43,50 +42,22 @@ static void *bytestream_virtual;
 static int bytestream_size;
 
 static int cedar_fd = -1;
-static void *cedar_regs;
 
 int ve_open(void)
 {
-	struct cedarv_env_infomation info;
-	int ret;
-
 	cedar_fd = open(DEVICE, O_RDWR);
 	if (cedar_fd == -1) {
 		fprintf(stderr, "%s(): failed to open %s: %s\n",
 			__func__, DEVICE, strerror(errno));
-		return 0;
-	}
-
-	ret = ioctl(cedar_fd, CEDAR_IOCTL_GET_ENV_INFO, (void *)(&info));
-	if (ret == -1) {
-		fprintf(stderr, "%s(): CEDAR_IOCTL_GET_ENV_INFO failed: %s\n",
-			__func__, strerror(errno));
-		goto error;
-	}
-
-	cedar_regs = mmap(NULL, 0x800, PROT_READ | PROT_WRITE, MAP_SHARED,
-		       cedar_fd, info.address_macc);
-	if (cedar_regs == MAP_FAILED) {
-		fprintf(stderr,
-			"%s(): register mmapping at 0x%08X failed: %s\n",
-			__func__, info.address_macc, strerror(errno));
-		goto error;
+		return -1;
 	}
 
 	return 0;
-
-error:
-	close(cedar_fd);
-	cedar_fd = -1;
-	return -1;
 }
 
 void
 ve_close(void)
 {
-	munmap(cedar_regs, 0x800);
-	cedar_regs = NULL;
-
 	close(cedar_fd);
 	cedar_fd = -1;
 }
@@ -182,11 +153,5 @@ void *
 ve_bytestream_virtual_get(void)
 {
 	return bytestream_virtual;
-}
-
-void *
-ve_mmio_get(void)
-{
-	return cedar_regs;
 }
 

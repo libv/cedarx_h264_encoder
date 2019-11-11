@@ -25,13 +25,10 @@
 
 #include "h264enc.h"
 #include "ve.h"
-#include "ve_regs.h"
 
 #define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
 struct h264enc_context {
-	void *regs;
-
 	unsigned int keyframe_interval;
 
 	unsigned int current_frame_num;
@@ -39,38 +36,6 @@ struct h264enc_context {
 	enum slice_type { SLICE_P = 0, SLICE_I = 2 } current_slice_type;
 
 };
-
-#define __maybe_unused  __attribute__((unused))
-static void __maybe_unused cedar_io_write(struct h264enc_context *context,
-					  int address, uint32_t value)
-{
-	writel(value, context->regs + address);
-}
-
-static uint32_t __maybe_unused cedar_io_read(struct h264enc_context *context,
-					     int address)
-{
-	return readl(context->regs + address);
-}
-
-static void __maybe_unused cedar_io_mask(struct h264enc_context *context,
-					 int address,
-					 uint32_t value, uint32_t mask)
-{
-	uint32_t temp = readl(context->regs + address);
-
-	temp &= ~mask;
-	value &= mask;
-
-	writel(value | temp, context->regs + address);
-}
-
-#define h264enc_read(a) \
-	cedar_io_read(context, H264ENC_BASE + (a))
-#define h264enc_write(a, v) \
-	cedar_io_write(context, H264ENC_BASE + (a), (v))
-#define h264enc_mask(a, v, m) \
-	cedar_io_mask(context, H264ENC_BASE + (a), (v), (m))
 
 void h264enc_free(struct h264enc_context *context)
 {
@@ -112,8 +77,6 @@ h264enc_new(struct h264enc_params *params)
 			__func__);
 		return NULL;
 	}
-
-	context->regs = ve_mmio_get();
 
 	context->keyframe_interval = params->keyframe_interval;
 

@@ -655,22 +655,6 @@ cedar_slashdev_release(struct inode *inode, struct file *filp)
 }
 
 static long
-cedar_slashdev_ioctl_get_env_info(struct sunxi_cedar *cedar, void __user *to)
-{
-	struct cedarv_env_infomation info = {
-		.address_macc = cedar->mmio_resource->start,
-	};
-
-	if (!to)
-		return -EINVAL;
-
-	if (copy_to_user(to, &info, sizeof(struct cedarv_env_infomation)))
-		return -EFAULT;
-
-	return 0;
-}
-
-static long
 cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 {
 	struct cedar_ioctl_config config;
@@ -1035,8 +1019,6 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	void __user *to = (void *) arg;
 
 	switch (cmd) {
-	case CEDAR_IOCTL_GET_ENV_INFO:
-		return cedar_slashdev_ioctl_get_env_info(cedar, to);
 	case CEDAR_IOCTL_ENCODE:
 		return cedar_slashdev_ioctl_encode(cedar, to);
 	case CEDAR_IOCTL_CONFIG:
@@ -1045,34 +1027,6 @@ cedar_slashdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		dev_err(cedar->dev, "%s(0x%04X, 0x%lX): unhandled ioctl.\n",
 			__func__, cmd, arg);
 		return -1;
-	}
-
-	return 0;
-}
-
-static int
-cedar_slashdev_mmap_io(struct sunxi_cedar *cedar, struct vm_area_struct *vma)
-{
-	size_t size = cedar->mmio_resource->end -
-		cedar->mmio_resource->start;
-	int ret;
-
-	dev_info(cedar->dev, "%s();\n", __func__);
-
-	/* Set reserved and I/O flag for the area. */
-	vma->vm_flags |= VM_IO;
-
-	/* Select uncached access. */
-	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-
-	/* clear offset, so vm_iomap_memory will not try to use it */
-	vma->vm_pgoff = 0;
-
-	ret = vm_iomap_memory(vma, cedar->mmio_resource->start, size);
-	if (ret) {
-		dev_err(cedar->dev, "%s(): vm_iomap_memory() failed: %d.\n",
-			__func__, ret);
-		return ret;
 	}
 
 	return 0;
@@ -1115,9 +1069,7 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	dev_info(cedar->dev, "%s(0x%08X, 0x%04X);\n", __func__, address, size);
 
-	if (address == cedar->mmio_resource->start)
-		return cedar_slashdev_mmap_io(cedar, vma);
-	else if ((address = cedar->input_luma_dma_addr) &&
+	if ((address = cedar->input_luma_dma_addr) &&
 		 (size == cedar->input_size))
 		return cedar_slashdev_mmap_mem(cedar, vma);
 	else if ((address = cedar->bytestream_dma_addr) &&

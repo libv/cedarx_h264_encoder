@@ -24,7 +24,6 @@
 
 int ve_open(void);
 void ve_close(void);
-void *ve_mmio_get(void);
 
 struct h264enc_params;
 int ve_config(struct h264enc_params *params);
