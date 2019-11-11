@@ -2,6 +2,13 @@
 /*
  * Cedrus VPU driver
  *
+ * Actual bitbanging and such:
+ *
+ * Copyright (c) 2014-2015 Jens Kuske <jenskuske@gmail.com>
+ * Copyright (c) 2019 Luc Verhaegen <libv@skynet.be>
+ *
+ * Cedrus resources code:
+ *
  * Copyright (C) 2016 Florent Revest <florent.revest@free-electrons.com>
  * Copyright (C) 2018 Paul Kocialkowski <paul.kocialkowski@bootlin.com>
  * Copyright (C) 2018 Bootlin
