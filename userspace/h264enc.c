@@ -89,6 +89,20 @@ static void __maybe_unused cedar_io_mask(struct h264enc_context *context,
 
 static void put_bits(struct h264enc_context *context, uint32_t x, int num)
 {
+	int i;
+
+#define STATUS_WAIT_COUNT 10000
+	for (i = 0; i < STATUS_WAIT_COUNT; i++) {
+		uint32_t status = h264enc_read(H264ENC_STATUS);
+
+		if ((status & 0x200) == 0x200)
+			break;
+	}
+
+	if (i == STATUS_WAIT_COUNT)
+		fprintf(stderr, "%s(): bytestream status not cleared.\n",
+			__func__);
+
 	h264enc_write(H264ENC_PUTBITSDATA, x);
 	h264enc_write(H264ENC_STARTTRIG, 0x1 | ((num & 0x1f) << 8));
 	/* again the problem, how to check for finish? */
