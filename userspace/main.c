@@ -35,7 +35,6 @@
 #define DEVICE "/dev/cedar_dev"
 
 #define ALIGN(x, a) (((x) + ((typeof(x))(a) - 1)) & ~((typeof(x))(a) - 1))
-#define IS_ALIGNED(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
 
 static void *input_buffer;
 static int input_buffer_size;
@@ -65,25 +64,6 @@ ve_config(int width, int height)
 	config.keyframe_interval = 25;
 
 	config.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CABAC;
-
-	if (!IS_ALIGNED(config.dst_width, 16) || !IS_ALIGNED(config.dst_height, 16) ||
-	    !IS_ALIGNED(config.src_width, 2) || !IS_ALIGNED(config.src_height, 2) ||
-	    (config.dst_width > config.src_width) ||
-	    (config.dst_height > config.src_height)) {
-		fprintf(stderr, "%s(): invalid picture size.\n", __func__);
-		return -1;
-	}
-
-	if (config.qp == 0 || config.qp > 47) {
-		fprintf(stderr, "%s(): invalid QP.\n", __func__);
-		return -1;
-	}
-
-	if ((config.src_format != CEDAR_IOCTL_CONFIG_FORMAT_NV12) &&
-	    (config.src_format != CEDAR_IOCTL_CONFIG_FORMAT_NV16)) {
-		fprintf(stderr, "%s(): invalid color format.\n", __func__);
-		return -1;
-	}
 
 	ret = ioctl(cedar_fd, CEDAR_IOCTL_CONFIG, &config);
 	if (ret) {

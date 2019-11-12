@@ -675,6 +675,48 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 		return -EINVAL;
 	}
 
+	if ((config.src_width & 0x01) || (config.src_height & 0x01)) {
+		dev_err(cedar->dev,
+			"%s: src width %d, height %d not aligned.\n",
+			__func__, config.src_width, config.src_height);
+		return -EINVAL;
+	}
+
+	if ((config.dst_width & 0x0F) || (config.dst_height & 0x0F)) {
+		dev_err(cedar->dev,
+			"%s: dst width %d, height %d not aligned.\n",
+			__func__, config.dst_width, config.dst_height);
+		return -EINVAL;
+	}
+
+	if ((config.src_width > config.dst_width) ||
+	    (config.src_height > config.dst_height)) {
+		dev_err(cedar->dev, "%s: src (%d,%d) > dst (%d, %d)\n",
+			__func__, config.src_width, config.src_height,
+			config.dst_width, config.dst_height);
+		return -EINVAL;
+	}
+
+	if ((config.qp <= 0) || (config.qp > 47)) {
+		dev_err(cedar->dev, "%s: invalid QP %d\n",
+			__func__, config.qp);
+		return -EINVAL;
+	}
+
+	if ((config.src_format != CEDAR_IOCTL_CONFIG_FORMAT_NV12) &&
+	    (config.src_format != CEDAR_IOCTL_CONFIG_FORMAT_NV16)) {
+		dev_err(cedar->dev, "%s(): invalid color format.\n",
+			__func__);
+		return -EINVAL;
+	}
+
+	if ((config.keyframe_interval <= 0) ||
+	    (config.keyframe_interval >= 32)) {
+		dev_err(cedar->dev, "%s: invalid keyframe interval %d\n",
+			__func__, config.keyframe_interval);
+		return -EINVAL;
+	}
+
 	cedar->src_width = config.src_width;
 	cedar->src_height = config.src_height;
 	cedar->src_format = config.src_format;
@@ -695,7 +737,6 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 		cedar->dst_height_crop = 0x10 - (config.dst_height & 0x0F);
 	else
 		cedar->dst_height_crop = 0;
-
 	cedar->profile = config.profile;
 	cedar->level = config.level;
 	cedar->qp = config.qp;
