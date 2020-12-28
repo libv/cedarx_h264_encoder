@@ -1065,17 +1065,72 @@ cedar_slashdev_ioctl_encode(struct sunxi_cedar *cedar, void __user *from)
 	else
 		cedar_bytestream_sliceheader(cedar, true);
 
-	cedarisp_write(CEDAR_H264ISP_STRIDE_CTRL,
+	cedarisp_write(CEDAR_H264ISP_STRIDE,
 		       cedar->src_stride_mb << 16);
+	cedarisp_write(CEDAR_H264ISP_MB_STRIDE,
+		       cedar->src_stride_mb);
 	cedarisp_write(CEDAR_H264ISP_INPUT_SIZE,
 		       (cedar->src_width_mb << 16) |
 		       cedar->src_height_mb);
-
+	cedarisp_write(CEDAR_H264ISP_SCALER_CTRL, 0);
 	cedarisp_write(CEDAR_H264ISP_CTRL, 0);
 	cedarisp_write(CEDAR_H264ISP_INPUT_Y_ADDR,
 		       cedar->input_luma_dma_addr);
 	cedarisp_write(CEDAR_H264ISP_INPUT_C0_ADDR,
 		       cedar->input_chroma_dma_addr);
+
+	if (cedar->thumbnail_enable) {
+		cedarisp_mask(CEDAR_H264ISP_CTRL, 0x80000, 0x80000);
+
+		/*
+		 * This does not match what the binary blob does. Neither the
+		 * stride recalculation, nor the bit values used. I guess this
+		 * feature was never really tested.
+		 *
+		 * The values:
+		 * 0x00 = 1x
+		 * 0x01 = apocalypse
+		 * 0x02 = 2x
+		 * 0x03 = 4x
+		 *
+		 * Using 0x01 will have this engine run endlessly, overwriting
+		 * everything, which even almost killed the filesystem on the
+		 * SD-Card of my test system. So stay well clear.
+		 *
+		 * Higher bit has no effect, lower bit does some "pattern"
+		 * stuff. So 1, 2, 4 is all we get, but that's plenty to get
+		 * scaled down and efficient stream preview for free.
+		 */
+		switch (cedar->thumbnail_downscale) {
+		case 1:
+			cedarisp_mask(CEDAR_H264ISP_CTRL, 0, 0x06000000);
+			cedarisp_mask(CEDAR_H264ISP_STRIDE,
+				      cedar->src_stride_mb, 0x3FF);
+			break;
+		case 2:
+			cedarisp_mask(CEDAR_H264ISP_CTRL,
+				      0x04000000, 0x06000000);
+			cedarisp_mask(CEDAR_H264ISP_STRIDE,
+				      cedar->src_stride_mb / 2, 0x3FF);
+			break;
+		case 4:
+			cedarisp_mask(CEDAR_H264ISP_CTRL,
+				      0x06000000, 0x06000000);
+			cedarisp_mask(CEDAR_H264ISP_STRIDE,
+				      cedar->src_stride_mb / 4, 0x3FF);
+			break;
+		default:
+			dev_err(cedar->dev, "%s(): unhandled thumbnail "
+				"downscale %d\n", __func__,
+				cedar->thumbnail_downscale);
+			break;
+		}
+
+		cedarisp_write(CEDAR_H264ISP_THUMB_Y_ADDR,
+			       cedar->thumb_luma_dma_addr);
+		cedarisp_write(CEDAR_H264ISP_THUMB_C_ADDR,
+			       cedar->thumb_chroma_dma_addr);
+	}
 
 	cedarenc_write(CEDAR_H264ENC_RECADDRY,
 		       cedar->reference_current->luma_dma_addr);
