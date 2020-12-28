@@ -96,8 +96,10 @@ struct sunxi_cedar {
 
 	bool entropy_coding_mode_cabac;
 
-	size_t input_size;
+	size_t input_luma_size;
+	size_t input_chroma_size;
 	void *input_luma_virtual;
+	void *input_chroma_virtual;
 	dma_addr_t input_luma_dma_addr;
 	dma_addr_t input_chroma_dma_addr;
 
@@ -529,13 +531,20 @@ static void
 cedar_buffers_cleanup(struct sunxi_cedar *cedar)
 {
 	if (cedar->input_luma_virtual)
-		dma_free_coherent(cedar->dev, cedar->input_size,
+		dma_free_coherent(cedar->dev, cedar->input_luma_size,
 				  cedar->input_luma_virtual,
 				  cedar->input_luma_dma_addr);
 	cedar->input_luma_virtual = NULL;
 	cedar->input_luma_dma_addr = 0;
+	cedar->input_luma_size = 0;
+
+	if (cedar->input_chroma_virtual)
+		dma_free_coherent(cedar->dev, cedar->input_chroma_size,
+				  cedar->input_chroma_virtual,
+				  cedar->input_chroma_dma_addr);
+	cedar->input_chroma_virtual = NULL;
 	cedar->input_chroma_dma_addr = 0;
-	cedar->input_size = 0;
+	cedar->input_chroma_size = 0;
 
 	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[0]);
 	cedar_reference_frame_cleanup(cedar, &cedar->reference_frame[1]);
@@ -573,16 +582,25 @@ cedar_buffers_init(struct sunxi_cedar *cedar)
 	int size, ret;
 
 	size = cedar->src_width * cedar->src_height;
-	cedar->input_size = ALIGN(size + (size >> 1), 4096);
+
+	cedar->input_luma_size = ALIGN(size, 4096);
 	cedar->input_luma_virtual =
-		dma_alloc_coherent(cedar->dev, cedar->input_size,
+		dma_alloc_coherent(cedar->dev, cedar->input_luma_size,
 				   &cedar->input_luma_dma_addr, GFP_KERNEL);
 	if (!cedar->input_luma_virtual) {
-		dev_err(cedar->dev, "%s: failed to allocate luma.\n",
+		dev_err(cedar->dev, "%s: failed to allocate input luma.\n",
 			__func__);
 		goto error;
 	}
-	cedar->input_chroma_dma_addr = cedar->input_luma_dma_addr + size;
+	cedar->input_chroma_size = ALIGN(size >> 1, 4096);
+	cedar->input_chroma_virtual =
+		dma_alloc_coherent(cedar->dev, cedar->input_chroma_size,
+				   &cedar->input_chroma_dma_addr, GFP_KERNEL);
+	if (!cedar->input_chroma_virtual) {
+		dev_err(cedar->dev, "%s: failed to allocate input chroma.\n",
+			__func__);
+		goto error;
+	}
 
 	ret = cedar_reference_frame_init(cedar, &cedar->reference_frame[0]);
 	if (ret)
@@ -755,8 +773,10 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	cedar->configured = true;
 
-	config.input_dma_addr = cedar->input_luma_dma_addr;
-	config.input_size = cedar->input_size;
+	config.input_luma_dma_addr = cedar->input_luma_dma_addr;
+	config.input_luma_size = cedar->input_luma_size;
+	config.input_chroma_dma_addr = cedar->input_chroma_dma_addr;
+	config.input_chroma_size = cedar->input_chroma_size;
 
 	config.bytestream_dma_addr = cedar->bytestream_dma_addr;
 	config.bytestream_size = cedar->bytestream_size;
@@ -1113,7 +1133,10 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 	dev_info(cedar->dev, "%s(0x%08X, 0x%04X);\n", __func__, address, size);
 
 	if ((address = cedar->input_luma_dma_addr) &&
-		 (size == cedar->input_size))
+		 (size == cedar->input_luma_size))
+		return cedar_slashdev_mmap_mem(cedar, vma);
+	else if ((address = cedar->input_chroma_dma_addr) &&
+		 (size == cedar->input_chroma_size))
 		return cedar_slashdev_mmap_mem(cedar, vma);
 	else if ((address = cedar->bytestream_dma_addr) &&
 		 (size == cedar->bytestream_size))

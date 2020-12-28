@@ -34,8 +34,10 @@
 
 #define ALIGN(x, a) (((x) + ((typeof(x))(a) - 1)) & ~((typeof(x))(a) - 1))
 
-static void *input_buffer;
-static int input_buffer_size;
+static void *input_luma_buffer;
+static int input_luma_size;
+static void *input_chroma_buffer;
+static int input_chroma_size;
 
 static void *bytestream;
 static int bytestream_size;
@@ -70,17 +72,34 @@ ve_config(int width, int height)
 		return ret;
 	}
 
-	input_buffer_size = config.input_size;
-	input_buffer = mmap(NULL, input_buffer_size, PROT_READ | PROT_WRITE,
-			    MAP_SHARED, cedar_fd, config.input_dma_addr);
-	if (input_buffer == MAP_FAILED) {
-		fprintf(stderr, "%s(): failed to mmap input buffer: %s.\n",
-			__func__, strerror(errno));
+	input_luma_size = config.input_luma_size;
+	input_luma_buffer = mmap(NULL, input_luma_size,
+				 PROT_READ | PROT_WRITE,
+				 MAP_SHARED, cedar_fd,
+				 config.input_luma_dma_addr);
+	if (input_luma_buffer == MAP_FAILED) {
+		fprintf(stderr, "%s(): failed to mmap input luma buffer: "
+			"%s.\n", __func__, strerror(errno));
 		return -ENOMEM;
 	}
 
-	printf("Input: %dbytes at 0x%08X -> %p\n", input_buffer_size,
-	       config.input_dma_addr, input_buffer);
+	printf("Input Y: %dbytes at 0x%08X -> %p\n", input_luma_size,
+	       config.input_luma_dma_addr, input_luma_buffer);
+
+	input_chroma_size = config.input_chroma_size;
+	input_chroma_buffer = mmap(NULL, input_chroma_size,
+				   PROT_READ | PROT_WRITE,
+				   MAP_SHARED, cedar_fd,
+				   config.input_chroma_dma_addr);
+	if (input_chroma_buffer == MAP_FAILED) {
+		fprintf(stderr, "%s(): failed to mmap input chroma buffer: "
+			"%s.\n", __func__, strerror(errno));
+		return -ENOMEM;
+	}
+
+	printf("Input C: %dbytes at 0x%08X -> %p\n", input_chroma_size,
+	       config.input_chroma_dma_addr, input_chroma_buffer);
+
 
 	bytestream_size = config.bytestream_size;
 	bytestream = mmap(NULL, bytestream_size, PROT_READ | PROT_WRITE,
@@ -109,7 +128,7 @@ read_frame(int fd, void *buffer, int size)
 		total += len;
 	}
 
-	return 0;
+	return total;
 }
 
 int main(int argc, char **argv)
@@ -117,7 +136,7 @@ int main(int argc, char **argv)
 	uint32_t frame_count = 0;
 	int width, height;
 	int fd_in, fd_out;
-	int size, ret;
+	int luma_size, chroma_size, ret;
 
 	if (argc != 5) {
 		printf("Usage: %s <infile> <width> <height> <outfile>\n", argv[0]);
@@ -156,9 +175,17 @@ int main(int argc, char **argv)
 	if (ret)
 		return ret;
 
-	size = width * (height + (height >> 1));
+	luma_size = width * height;
+	chroma_size = luma_size / 2;
 
-	while (!read_frame(fd_in, input_buffer, size)) {
+	while (1) {
+		ret = read_frame(fd_in, input_luma_buffer, luma_size);
+		if (ret != luma_size)
+			break;
+		ret = read_frame(fd_in, input_chroma_buffer, chroma_size);
+		if (ret != chroma_size)
+			break;
+
 		ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
 		if (ret < 0)
 			fprintf(stderr, "%s(): %d: CEDAR_IOCTL_ENCODE failed: %s\n",
