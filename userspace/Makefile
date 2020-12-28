@@ -1,6 +1,6 @@
 TARGET = h264enc
 SRC = main.c
-CFLAGS = -Wall -O3 -I../common
+CFLAGS = -Wall -O3 -I../kernel
 LDFLAGS = -lpthread
 LIBS =
 CC = gcc
