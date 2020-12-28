@@ -1,0 +1,1 @@
+KERNEL=="cedar*", GROUP="video", MODE="0660"
