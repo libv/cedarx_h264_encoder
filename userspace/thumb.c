@@ -96,6 +96,38 @@ cedar_config(int width, int height)
 	return 0;
 }
 
+static void
+input_fill(void)
+{
+	int offset, x, y;
+
+	/* ITU REC.709 black luminance */
+	memset(input_luma, 0x10, input_luma_size);
+
+	/* Set luminance to full on edge pixels. */
+	offset = 0;
+	for (y = 0; y < input_height; y++) {
+		for (x = 0; x < input_width; x++) {
+			if ((y < 4) ||
+			    (y >= (input_height - 4)) ||
+			    (x < 4) ||
+			    (x >= (input_width - 4)))
+				input_luma[offset + x] = 0xEB;
+		}
+		offset += input_pitch;
+	}
+
+	/* encode our position in all pixels' chrominance */
+	offset = 0;
+	for (y = 0; y < input_height; y += 2) {
+		for (x = 0; x < input_width; x += 2) {
+			input_chroma[offset + x] = x & 0xFF;
+			input_chroma[offset + x + 1] = y & 0xFF;
+		}
+		offset += input_pitch;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int ret;
@@ -113,6 +145,8 @@ int main(int argc, char *argv[])
 			__func__, strerror(-ret));
 		return ret;
 	}
+
+	input_fill();
 
 	return 0;
 }
