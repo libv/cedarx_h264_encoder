@@ -183,6 +183,21 @@ buffer_print(const char *name, uint8_t *luma, int luma_size,
 	}
 }
 
+static int cedar_encode(void)
+{
+	int ret;
+
+	ret = ioctl(cedar_fd, CEDAR_IOCTL_ENCODE, NULL);
+	if (ret < 0) {
+		fprintf(stderr, "Error: %s(): ioctl(ENCODE): %s\n",
+			__func__, strerror(errno));
+		return errno;
+	}
+
+	printf("Encoded to %d bytes.\n", ret);
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int ret;
@@ -205,6 +220,13 @@ int main(int argc, char *argv[])
 
 	buffer_print("Input", input_luma, input_luma_size, input_chroma,
 		     input_chroma_size, input_width, input_height, input_pitch);
+
+	ret = cedar_encode();
+	if (ret) {
+		fprintf(stderr, "Error: %s(): cedar_encode(): %s.\n",
+			__func__, strerror(-ret));
+		return ret;
+	}
 
 	return 0;
 }
