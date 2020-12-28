@@ -128,6 +128,61 @@ input_fill(void)
 	}
 }
 
+static void
+buffer_print(const char *name, uint8_t *luma, int luma_size,
+	     uint8_t *chroma, int chroma_size,
+	     int width, int height, int pitch)
+{
+	int offset, x, y, i;
+
+	/* print to verify our creation */
+	printf("%s Y (%d(%d)x%d):\n", name, width, pitch, height);
+	offset = 0;
+	for (y = 0; y < height; y++) {
+		for (x = 0; x < width; x++) {
+			if (!(x & 0x1F)) {
+				if (!x)
+					printf(" %3d:\t", y);
+				else
+					printf("\t");
+				for (i = 0; i < (x >> 5); i++)
+					printf(" ");
+			}
+			printf(" %02X", luma[offset + x]);
+
+			if ((x & 0x1F) == 0x1F)
+				printf("\n");
+		}
+		if (x & 0x1F)
+			printf("\n");
+		offset += pitch;
+	}
+
+	printf("%s UV (%d(%d)x%d):\n", name, width, pitch, height);
+	offset = 0;
+	for (y = 0; y < height; y += 2) {
+		for (x = 0; x < width; x += 2) {
+			if (!(x & 0x1F)) {
+				if (!x)
+					printf(" %3d:\t", y);
+				else
+					printf("\t");
+				for (i = 0; i < (x >> 5); i++)
+					printf(" ");
+			}
+			printf(" %02X%02X",
+			       chroma[offset + x + 1],
+			       chroma[offset + x]);
+
+			if ((x & 0x1F) == 0x1E)
+				printf("\n");
+		}
+		if (x & 0x1F)
+			printf("\n");
+		offset += pitch;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int ret;
@@ -147,6 +202,9 @@ int main(int argc, char *argv[])
 	}
 
 	input_fill();
+
+	buffer_print("Input", input_luma, input_luma_size, input_chroma,
+		     input_chroma_size, input_width, input_height, input_pitch);
 
 	return 0;
 }
