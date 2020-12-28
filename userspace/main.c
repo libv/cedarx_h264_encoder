@@ -32,8 +32,6 @@
 
 #include "cedar_ioctl.h"
 
-#define DEVICE "/dev/cedar_dev"
-
 #define ALIGN(x, a) (((x) + ((typeof(x))(a) - 1)) & ~((typeof(x))(a) - 1))
 
 static void *input_buffer;
@@ -129,10 +127,10 @@ int main(int argc, char **argv)
 	width = atoi(argv[2]);
 	height = atoi(argv[3]);
 
-	cedar_fd = open(DEVICE, O_RDWR);
+	cedar_fd = open(CEDAR_DEVICE_PATH, O_RDWR);
 	if (cedar_fd == -1) {
-		fprintf(stderr, "%s(): failed to open %s: %s\n", __func__, DEVICE,
-			strerror(errno));
+		fprintf(stderr, "%s(): failed to open %s: %s\n",
+			__func__, CEDAR_DEVICE_PATH, strerror(errno));
 		return -1;
 	}
 

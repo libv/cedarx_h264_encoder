@@ -1143,7 +1143,7 @@ static int cedar_slashdev_initialize(struct sunxi_cedar *cedar)
 
 	dev_info(cedar->dev, "%s();\n", __func__);
 
-	ret = alloc_chrdev_region(&cedar->majorminor, 0, 1, "cedar_dev");
+	ret = alloc_chrdev_region(&cedar->majorminor, 0, 1, CEDAR_DEVICE);
 	if (ret) {
 		dev_err(cedar->dev, "%s(): alloc_chrdev_region() failed: %d\n",
 			__func__, ret);
@@ -1161,7 +1161,7 @@ static int cedar_slashdev_initialize(struct sunxi_cedar *cedar)
 		return ret;
 	}
 
-	cedar->class = class_create(THIS_MODULE, "cedar_dev");
+	cedar->class = class_create(THIS_MODULE, CEDAR_DEVICE);
 	if (IS_ERR(cedar->class)) {
 		dev_err(cedar->dev, "%s(): class_create() failed: %ld\n",
 			__func__, PTR_ERR(cedar->class));
@@ -1172,7 +1172,7 @@ static int cedar_slashdev_initialize(struct sunxi_cedar *cedar)
 	}
 
 	cedar->slashdev = device_create(cedar->class, NULL, cedar->majorminor,
-					NULL, "cedar_dev");
+					NULL, CEDAR_DEVICE);
 	if (!cedar->slashdev) {
 		dev_err(cedar->dev, "%s(): device_create() failed: %d\n",
 			__func__, ret);

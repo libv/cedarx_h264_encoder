@@ -1,6 +1,9 @@
 #ifndef _CEDAR_IOCTL_H_
 #define _CEDAR_IOCTL_H_
 
+#define CEDAR_DEVICE "cedar_dev"
+#define CEDAR_DEVICE_PATH "/dev/" CEDAR_DEVICE
+
 enum cedar_ioctl_cmd {
 	CEDAR_IOCTL_ENCODE = 0x600,
 	CEDAR_IOCTL_CONFIG = 0x601,
