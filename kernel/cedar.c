@@ -132,6 +132,16 @@ struct sunxi_cedar {
 	void *bytestream_virtual;
 	dma_addr_t bytestream_dma_addr;
 	size_t bytestream_size;
+
+	/* ISP created thumbnail */
+	bool thumbnail_enable;
+	int thumbnail_downscale;
+	size_t thumb_luma_size;
+	size_t thumb_chroma_size;
+	void *thumb_luma_virtual;
+	void *thumb_chroma_virtual;
+	dma_addr_t thumb_luma_dma_addr;
+	dma_addr_t thumb_chroma_dma_addr;
 };
 
 #define CEDRUS_CLOCK_RATE_DEFAULT 320000000
@@ -574,6 +584,22 @@ cedar_buffers_cleanup(struct sunxi_cedar *cedar)
 	cedar->bytestream_size = 0;
 	cedar->bytestream_virtual = NULL;
 	cedar->bytestream_dma_addr = 0;
+
+	if (cedar->thumb_luma_virtual)
+		dma_free_coherent(cedar->dev, cedar->thumb_luma_size,
+				  cedar->thumb_luma_virtual,
+				  cedar->thumb_luma_dma_addr);
+	cedar->thumb_luma_virtual = NULL;
+	cedar->thumb_luma_dma_addr = 0;
+	cedar->thumb_luma_size = 0;
+
+	if (cedar->thumb_chroma_virtual)
+		dma_free_coherent(cedar->dev, cedar->thumb_chroma_size,
+				  cedar->thumb_chroma_virtual,
+				  cedar->thumb_chroma_dma_addr);
+	cedar->thumb_chroma_virtual = NULL;
+	cedar->thumb_chroma_dma_addr = 0;
+	cedar->thumb_chroma_size = 0;
 }
 
 static int
@@ -643,6 +669,33 @@ cedar_buffers_init(struct sunxi_cedar *cedar)
 			__func__);
 		goto error;
 	}
+
+	if (cedar->thumbnail_enable) {
+		size = (cedar->src_width / cedar->thumbnail_downscale) *
+			(cedar->src_height / cedar->thumbnail_downscale);
+		cedar->thumb_luma_size = ALIGN(size, 4096);
+		cedar->thumb_luma_virtual =
+			dma_alloc_coherent(cedar->dev, cedar->thumb_luma_size,
+					   &cedar->thumb_luma_dma_addr,
+					   GFP_KERNEL);
+		if (!cedar->thumb_luma_virtual) {
+			dev_err(cedar->dev, "%s: failed to allocate thumbnail"
+				" luma.\n", __func__);
+			goto error;
+		}
+
+		cedar->thumb_chroma_size = ALIGN(size >> 1, 4096);
+		cedar->thumb_chroma_virtual =
+			dma_alloc_coherent(cedar->dev, cedar->thumb_chroma_size,
+					   &cedar->thumb_chroma_dma_addr,
+					   GFP_KERNEL);
+		if (!cedar->thumb_chroma_virtual) {
+			dev_err(cedar->dev, "%s: failed to allocate thumbnail"
+				" chroma.\n", __func__);
+			goto error;
+		}
+	}
+
 
 	return 0;
  error:
@@ -767,6 +820,17 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 	else
 		cedar->entropy_coding_mode_cabac = false;
 
+	if (config.thumbnail &&
+	    ((config.thumbnail_downscale == 1) ||
+	     (config.thumbnail_downscale == 2) ||
+	     (config.thumbnail_downscale == 4))) {
+		cedar->thumbnail_enable = true;
+		cedar->thumbnail_downscale = config.thumbnail_downscale;
+	} else {
+		cedar->thumbnail_enable = false;
+		cedar->thumbnail_downscale = 0;
+	}
+
 	ret = cedar_buffers_init(cedar);
 	if (ret)
 		return ret;
@@ -780,6 +844,20 @@ cedar_slashdev_ioctl_config(struct sunxi_cedar *cedar, void __user *from)
 
 	config.bytestream_dma_addr = cedar->bytestream_dma_addr;
 	config.bytestream_size = cedar->bytestream_size;
+
+	if (cedar->thumbnail_enable) {
+		config.thumbnail = 1;
+		config.thumb_luma_dma_addr = cedar->thumb_luma_dma_addr;
+		config.thumb_luma_size = cedar->thumb_luma_size;
+		config.thumb_chroma_dma_addr = cedar->thumb_chroma_dma_addr;
+		config.thumb_chroma_size = cedar->thumb_chroma_size;
+	} else {
+		config.thumbnail = 0;
+		config.thumb_luma_dma_addr = 0;
+		config.thumb_luma_size = 0;
+		config.thumb_chroma_dma_addr = 0;
+		config.thumb_chroma_size = 0;
+	}
 
 	if (copy_to_user(from, &config, sizeof(struct cedar_ioctl_config)))
 		return -EFAULT;
@@ -1140,6 +1218,12 @@ cedar_slashdev_mmap(struct file *filp, struct vm_area_struct *vma)
 		return cedar_slashdev_mmap_mem(cedar, vma);
 	else if ((address = cedar->bytestream_dma_addr) &&
 		 (size == cedar->bytestream_size))
+		return cedar_slashdev_mmap_mem(cedar, vma);
+	else if ((address = cedar->thumb_luma_dma_addr) &&
+		 (size == cedar->thumb_luma_size))
+		return cedar_slashdev_mmap_mem(cedar, vma);
+	else if ((address = cedar->thumb_chroma_dma_addr) &&
+		 (size == cedar->thumb_chroma_size))
 		return cedar_slashdev_mmap_mem(cedar, vma);
 	else {
 		dev_err(cedar->dev, "%s(0x%08X): invalid offset;\n",

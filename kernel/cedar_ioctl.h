@@ -24,6 +24,9 @@ struct cedar_ioctl_config {
 	int qp;
 	int keyframe_interval;
 
+	int thumbnail;
+	int thumbnail_downscale;
+
 #define CEDAR_IOCTL_ENTROPY_CODING_CAVLC 0
 #define CEDAR_IOCTL_ENTROPY_CODING_CABAC 1
 	int entropy_coding_mode;
@@ -35,6 +38,11 @@ struct cedar_ioctl_config {
 
 	uint32_t bytestream_dma_addr;
 	int bytestream_size;
+
+	uint32_t thumb_luma_dma_addr;
+	int thumb_luma_size;
+	uint32_t thumb_chroma_dma_addr;
+	int thumb_chroma_size;
 };
 
 #endif /* _CEDAR_IOCTL_H_ */

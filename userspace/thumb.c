@@ -43,6 +43,15 @@ static size_t input_luma_size;
 static uint8_t *input_chroma;
 static size_t input_chroma_size;
 
+static int thumb_downscale;
+static int thumb_width;
+static int thumb_height;
+static int thumb_pitch;
+static uint8_t *thumb_luma;
+static size_t thumb_luma_size;
+static uint8_t *thumb_chroma;
+static size_t thumb_chroma_size;
+
 static int
 cedar_config(int width, int height)
 {
@@ -57,6 +66,8 @@ cedar_config(int width, int height)
 		.qp = 24,
 		.keyframe_interval = 25,
 		.entropy_coding_mode = CEDAR_IOCTL_ENTROPY_CODING_CABAC,
+		.thumbnail = 1,
+		.thumbnail_downscale = thumb_downscale,
 	}};
 	int ret;
 
@@ -92,6 +103,35 @@ cedar_config(int width, int height)
 	}
 	printf("Input C: 0x%08X -> %p (%tdbytes).\n",
 	       config->input_chroma_dma_addr, input_chroma, input_chroma_size);
+
+	/*
+	 * Map thumbnail buffers.
+	 */
+	thumb_width = input_width / config->thumbnail_downscale;
+	thumb_height = input_height / config->thumbnail_downscale;
+	thumb_pitch = thumb_width;
+
+	thumb_luma_size = config->thumb_luma_size;
+	thumb_luma = mmap(NULL, thumb_luma_size, PROT_READ | PROT_WRITE,
+			  MAP_SHARED, cedar_fd, config->thumb_luma_dma_addr);
+	if (thumb_luma == MAP_FAILED) {
+		fprintf(stderr, "Error: %s(): mmap(thumbnail luma): %s.\n",
+			__func__, strerror(errno));
+		return errno;
+	}
+	printf("Thumbnail Y: 0x%08X -> %p (%tdbytes).\n",
+	       config->thumb_luma_dma_addr, thumb_luma, thumb_luma_size);
+
+	thumb_chroma_size = config->thumb_chroma_size;
+	thumb_chroma = mmap(NULL, thumb_chroma_size, PROT_READ | PROT_WRITE,
+			  MAP_SHARED, cedar_fd, config->thumb_chroma_dma_addr);
+	if (thumb_chroma == MAP_FAILED) {
+		fprintf(stderr, "Error: %s(): mmap(thumbnail chroma): %s.\n",
+			__func__, strerror(errno));
+		return errno;
+	}
+	printf("Thumbnail C: 0x%08X -> %p (%tdbytes).\n",
+	       config->thumb_chroma_dma_addr, thumb_chroma, thumb_chroma_size);
 
 	return 0;
 }
@@ -202,6 +242,21 @@ int main(int argc, char *argv[])
 {
 	int ret;
 
+	if (argc != 2) {
+		fprintf(stderr, "Error: Missing downscale argument.\n");
+		printf("Usage: %s [1,2,4]\n", argv[0]);
+		return -1;
+	}
+
+	thumb_downscale = atoi(argv[1]);
+	if ((thumb_downscale != 1) &&
+	    (thumb_downscale != 2) &&
+	    (thumb_downscale != 4)) {
+		fprintf(stderr,
+			"Error: downscale argument is not one of 1,2 or 4.\n");
+		return -1;
+	}
+
 	cedar_fd = open(CEDAR_DEVICE_PATH, O_RDWR);
 	if (cedar_fd == -1) {
 		fprintf(stderr, "Error: %s():open(%s): %s\n",
@@ -227,6 +282,9 @@ int main(int argc, char *argv[])
 			__func__, strerror(-ret));
 		return ret;
 	}
+
+	buffer_print("Thumbnail", thumb_luma, thumb_luma_size, thumb_chroma,
+		     thumb_chroma_size, thumb_width, thumb_height, thumb_pitch);
 
 	return 0;
 }
